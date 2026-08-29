@@ -1,0 +1,32 @@
+name: devpulse
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: devpulse-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:?not set — copy .env.example to .env}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?not set — copy .env.example to .env and generate a value}"
+      POSTGRES_DB: "${CORE_DB_NAME:-core_db}"
+      SERVICES_DB_NAME: "${SERVICES_DB_NAME:-services_db}"
+      DJANGO_DB_USER: "${DJANGO_DB_USER:-django_user}"
+      DJANGO_DB_PASSWORD: "${DJANGO_DB_PASSWORD:?not set — see README, Local database}"
+      FASTAPI_DB_USER: "${FASTAPI_DB_USER:-fastapi_user}"
+      FASTAPI_DB_PASSWORD: "${FASTAPI_DB_PASSWORD:?not set — see README, Local database}"
+    # Bound to loopback: the dev database must not be reachable from the local network.
+    # Containers on the compose network still reach it directly as db:5432.
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh:ro
+    healthcheck:
+      # $$ defers expansion to the container's own environment.
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
