@@ -13,7 +13,16 @@ htmlcov/
 
 # Virtual environments
 .venv
+
+# Secrets — never commit real credentials or keys.
+# The negation must follow .env.* or the template itself would be ignored.
 .env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
 
 # Django
 *.sqlite3
