@@ -35,6 +35,17 @@ class Settings(BaseSettings):
     # Shared secret proving an inbound request came from the Django gateway.
     internal_secret_token: str
 
+    # --- Background health engine ---
+    # Interval per the ticket. Set low in local demos to make transitions watchable.
+    health_check_interval_seconds: int = 60
+    # Must stay below the interval, or a slow target delays the next cycle.
+    health_check_timeout_seconds: float = 5.0
+    # Latency budget. Under degraded => HEALTHY; at or over unhealthy => UNHEALTHY.
+    health_degraded_threshold_ms: int = 500
+    health_unhealthy_threshold_ms: int = 2000
+    # Tests disable the loop so the suite never spawns live background work.
+    health_check_enabled: bool = True
+
     @property
     def database_url(self) -> str:
         """Async SQLAlchemy DSN for services_db."""
