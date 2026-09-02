@@ -6,6 +6,8 @@ Run locally from the repository root:
 
 from fastapi import FastAPI
 
+from services.fastapi_registry.routers import services
+
 app = FastAPI(
     title="DevPulse Service Registry",
     description="Private microservice owning the service inventory and health data.",
@@ -22,3 +24,7 @@ async def health() -> dict[str, str]:
     database is necessarily reachable.
     """
     return {"status": "ok"}
+
+
+# Registered under /api/v1; the router itself contributes the /services prefix.
+app.include_router(services.router, prefix="/api/v1")

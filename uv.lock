@@ -130,6 +130,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "aiosqlite" },
     { name = "httpx" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
