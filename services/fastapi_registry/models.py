@@ -1,6 +1,8 @@
 """SQLAlchemy models for services_db."""
 
-from sqlalchemy import String
+from datetime import datetime
+
+from sqlalchemy import DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from services.fastapi_registry.database import Base
@@ -23,6 +25,13 @@ class ServiceModel(Base):
     environment: Mapped[str] = mapped_column(String(20))
     health_check_url: Mapped[str] = mapped_column(String(500))
     status: Mapped[str] = mapped_column(String(20), default="UNKNOWN", server_default="UNKNOWN")
+
+    # Written by the background health engine. Both nullable: a service that has never
+    # been checked is distinct from one checked and found unresponsive.
+    latency_ms: Mapped[int | None] = mapped_column(default=None)
+    last_checked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
 
     def __repr__(self) -> str:
         return f"<ServiceModel id={self.id} name={self.name!r} status={self.status!r}>"

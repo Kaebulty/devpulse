@@ -19,6 +19,9 @@ TEST_SECRET = "test-internal-secret"
 # application module loads.
 os.environ.setdefault("FASTAPI_DB_PASSWORD", "test-password")
 os.environ.setdefault("INTERNAL_SECRET_TOKEN", TEST_SECRET)
+# Never spawn the live background loop during tests: it would ping real URLs on a
+# timer and write to whatever database the settings happen to point at.
+os.environ["HEALTH_CHECK_ENABLED"] = "false"
 
 from services.fastapi_registry.config import get_settings  # noqa: E402
 from services.fastapi_registry.database import Base, get_session  # noqa: E402
@@ -29,6 +32,7 @@ from services.fastapi_registry.main import app  # noqa: E402
 def _override_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pin the internal secret regardless of the developer's local .env."""
     monkeypatch.setenv("INTERNAL_SECRET_TOKEN", TEST_SECRET)
+    monkeypatch.setenv("HEALTH_CHECK_ENABLED", "false")
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
