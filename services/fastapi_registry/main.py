@@ -6,7 +6,7 @@ Run locally from the repository root:
 
 from fastapi import FastAPI
 
-from services.fastapi_registry.routers import services
+from services.fastapi_registry.routers import mock, services
 
 app = FastAPI(
     title="DevPulse Service Registry",
@@ -28,3 +28,7 @@ async def health() -> dict[str, str]:
 
 # Registered under /api/v1; the router itself contributes the /services prefix.
 app.include_router(services.router, prefix="/api/v1")
+
+# Mounted at the root, not under /api/v1: the mock targets are not part of the
+# registry API, they stand in for external services the registry monitors.
+app.include_router(mock.router)
