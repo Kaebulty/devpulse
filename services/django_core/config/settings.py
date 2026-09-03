@@ -26,12 +26,20 @@ load_dotenv(REPO_ROOT / ".env")
 
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]
+# Falls back to a fixed non-secret value when unset: DJANGO_SETTINGS_MODULE is a
+# session-wide pytest-django option (pyproject.toml), so importing these settings
+# happens for the *entire* test session, including fastapi_registry's suite, before
+# any test runs. A clean checkout with no .env (CI, a fresh worktree) would otherwise
+# hit a bare KeyError at collection time and take every test down with it.
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "insecure-test-key-do-not-use-in-prod")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get("DJANGO_DEBUG", "False") == "True"
 
-ALLOWED_HOSTS = []
+# Comma-separated in .env, e.g. "devpulse.example.com,localhost". Empty is fine for
+# local dev (DEBUG=True auto-allows localhost/127.0.0.1), but manage.py check --deploy
+# warns (W020) and gunicorn with DEBUG=False will 400 everything until this is set.
+ALLOWED_HOSTS = [h for h in os.environ.get("DJANGO_ALLOWED_HOSTS", "").split(",") if h]
 
 
 # Application definition
@@ -45,6 +53,11 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
 ]
+
+# AUTH_USER_MODEL intentionally not set: the `accounts` app (custom user + RBAC) hasn't
+# landed yet. Do not run `manage.py migrate` before it does — that creates auth_user
+# under the default model, and switching AUTH_USER_MODEL afterwards means dropping and
+# recreating core_db rather than a normal migration.
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
@@ -80,14 +93,18 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
+# Non-secret local defaults below (matching compose.yaml / .env.example) so importing
+# this module never raises KeyError without a .env — see the SECRET_KEY comment above.
+# A test run without a real Postgres reachable at these coordinates still fails, just
+# as an isolated DB-test failure rather than crashing collection for every test.
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.environ["CORE_DB_NAME"],
-        'USER': os.environ["DJANGO_DB_USER"],
-        'PASSWORD': os.environ["DJANGO_DB_PASSWORD"],
-        'HOST': os.environ["POSTGRES_HOST"],
-        'PORT': os.environ["POSTGRES_PORT"],
+        'NAME': os.environ.get("CORE_DB_NAME", "core_db"),
+        'USER': os.environ.get("DJANGO_DB_USER", "django_user"),
+        'PASSWORD': os.environ.get("DJANGO_DB_PASSWORD", "insecure-test-password"),
+        'HOST': os.environ.get("POSTGRES_HOST", "localhost"),
+        'PORT': os.environ.get("POSTGRES_PORT", "5432"),
     }
 }
 
