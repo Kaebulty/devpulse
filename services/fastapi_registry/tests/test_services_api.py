@@ -1,6 +1,12 @@
 """Service registry CRUD behaviour."""
 
+from datetime import UTC, datetime
+
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from services.fastapi_registry.models import ServiceModel
+from services.fastapi_registry.schemas import ServiceStatus
 
 PAYLOAD = {
     "name": "payments-api",
@@ -87,3 +93,43 @@ async def test_create_after_conflict_still_works(
         "/api/v1/services", json=PAYLOAD | {"name": "billing-api"}, headers=auth_headers
     )
     assert other.status_code == 201
+
+
+async def test_new_service_reports_no_health_data_yet(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """Before the engine has run, health fields are explicitly null rather than absent."""
+    created = await client.post("/api/v1/services", json=PAYLOAD, headers=auth_headers)
+    body = created.json()
+
+    assert body["latency_ms"] is None
+    assert body["last_checked_at"] is None
+
+
+async def test_api_exposes_health_data_written_by_the_engine(
+    client: AsyncClient, auth_headers: dict[str, str], session: AsyncSession
+) -> None:
+    """Regression: the engine's results must reach the API response.
+
+    The columns were added with the health engine but left out of ServiceRead, so
+    latency sat in the database and never crossed the API boundary — invisible to
+    the gateway and therefore to the dashboard's latency badge (handbook §4.4).
+
+    Asserts on the serialised response, not the ORM object: the original tests
+    checked stored state, which is exactly why they missed this.
+    """
+    created = await client.post("/api/v1/services", json=PAYLOAD, headers=auth_headers)
+    service_id = created.json()["id"]
+
+    stored = await session.get(ServiceModel, service_id)
+    stored.status = ServiceStatus.DEGRADED.value
+    stored.latency_ms = 1208
+    stored.last_checked_at = datetime(2026, 9, 2, 12, 30, tzinfo=UTC)
+    await session.commit()
+
+    listed = await client.get("/api/v1/services", headers=auth_headers)
+    body = listed.json()[0]
+
+    assert body["status"] == "DEGRADED"
+    assert body["latency_ms"] == 1208
+    assert body["last_checked_at"].startswith("2026-09-02T12:30")

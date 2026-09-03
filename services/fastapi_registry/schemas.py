@@ -5,6 +5,7 @@ stores plain strings, and validation happens at the API edge. That keeps migrati
 free of Postgres ENUM alterations when new statuses are added.
 """
 
+from datetime import datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl
@@ -49,3 +50,9 @@ class ServiceRead(BaseModel):
     environment: Environment
     health_check_url: str
     status: ServiceStatus
+
+    # Written by the background health engine. Null until the first check runs.
+    # The dashboard renders these as a latency badge (handbook §4.4), so they have
+    # to cross the API boundary — the gateway has no other route to them.
+    latency_ms: int | None = None
+    last_checked_at: datetime | None = None
