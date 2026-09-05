@@ -13,7 +13,11 @@
 set -euo pipefail
 
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
-	CREATE ROLE "${DJANGO_DB_USER}"  LOGIN PASSWORD '${DJANGO_DB_PASSWORD}';
+	-- CREATEDB on django_user only: pytest-django spins up and tears down its own
+	-- "test_core_db" per run. fastapi_user doesn't need it — that suite runs against
+	-- an in-memory SQLite fixture (services/fastapi_registry/tests/conftest.py), never
+	-- a real services_db.
+	CREATE ROLE "${DJANGO_DB_USER}"  LOGIN CREATEDB PASSWORD '${DJANGO_DB_PASSWORD}';
 	CREATE ROLE "${FASTAPI_DB_USER}" LOGIN PASSWORD '${FASTAPI_DB_PASSWORD}';
 
 	-- core_db already exists (created by POSTGRES_DB); hand it to the Django role.
