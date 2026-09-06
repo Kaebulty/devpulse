@@ -52,12 +52,10 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'apps.accounts',
 ]
 
-# AUTH_USER_MODEL intentionally not set: the `accounts` app (custom user + RBAC) hasn't
-# landed yet. Do not run `manage.py migrate` before it does — that creates auth_user
-# under the default model, and switching AUTH_USER_MODEL afterwards means dropping and
-# recreating core_db rather than a normal migration.
+AUTH_USER_MODEL = 'accounts.User'
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
