@@ -1,0 +1,34 @@
+# Build context exclusions.
+#
+# .env is the important one: without it, real credentials are copied into an image
+# layer and persist there even if a later layer deletes the file. Anyone who can pull
+# the image can read them back out with `docker history`.
+
+.env
+.env.*
+!.env.example
+
+# Local virtualenv — the image builds its own; copying this in would also break it,
+# since the paths inside are absolute to the host.
+.venv
+
+.git
+.github
+.gitignore
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+
+.idea/
+.vscode/
+.DS_Store
+
+# Not needed at runtime. README.md is deliberately NOT excluded: pyproject.toml
+# declares `readme = "README.md"`, so the uv_build backend fails without it.
+Makefile
+docker/
