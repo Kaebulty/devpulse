@@ -2,7 +2,7 @@
 
 # Start Postgres (both core_db and services_db) in Docker. Run this first.
 dev-db:
-	docker compose up db -d
+	docker compose up db -d --wait
 
 # Run both services natively via uv, in parallel. Ctrl-C stops both.
 dev:
@@ -18,15 +18,17 @@ dev-fastapi:
 	uv run uvicorn services.fastapi_registry.main:app --reload --port 8001
 
 # Run both services' migrations. Separate ORMs, separate commands.
-migrate:
+migrate: dev-db
 	uv run python services/django_core/manage.py migrate
 	cd services/fastapi_registry && uv run alembic upgrade head
 
 lint:
 	uv run ruff check .
 
-# Both suites in one pytest-django session (see CLAUDE.md testing gotcha).
-test:
+# Both suites in one pytest-django session. Depends on dev-db because the Django
+# tests need a real Postgres to create their test database against; without it
+# `make test` fails on a clean checkout with a psycopg OperationalError.
+test: dev-db
 	uv run pytest services
 
 clean:

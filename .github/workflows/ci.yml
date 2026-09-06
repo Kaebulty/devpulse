@@ -35,22 +35,19 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Start Postgres (core_db + services_db)
-        run: docker compose up db -d
-
-      - name: Wait for Postgres
-        run: |
-          timeout 60 bash -c \
-            'until [ "$(docker inspect -f "{{.State.Health.Status}}" devpulse-db)" = "healthy" ]; do sleep 2; done'
+      # Driven through the Makefile rather than the underlying commands, so CI
+      # exercises the same entry point developers use. This is also what verifies
+      # the Makefile runs on Linux — the ticket asks for Linux and macOS, and macOS
+      # is covered by local use.
+      #
+      # `make migrate` and `make test` both depend on dev-db, which starts Postgres
+      # with --wait, so there is no separate boot-and-poll step.
 
       - name: Lint
-        run: uv run ruff check .
+        run: make lint
 
-      - name: Apply Django migrations
-        run: uv run python services/django_core/manage.py migrate
-
-      - name: Apply FastAPI migrations
-        run: cd services/fastapi_registry && uv run alembic upgrade head
+      - name: Migrate
+        run: make migrate
 
       - name: Test
-        run: uv run pytest services
+        run: make test
