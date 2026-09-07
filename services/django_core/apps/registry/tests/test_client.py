@@ -153,6 +153,18 @@ def test_connect_error_raises_registry_unavailable(client):
 
 
 @respx.mock
+def test_remote_protocol_error_raises_registry_unavailable(client):
+    """Regression: FastAPI dying mid-response (plausible with --workers 1) used to
+    propagate as a raw httpx.RemoteProtocolError instead of RegistryUnavailable."""
+    respx.get(f"{BASE_URL}/api/v1/services").mock(
+        side_effect=httpx.RemoteProtocolError("peer closed connection")
+    )
+
+    with pytest.raises(RegistryUnavailable):
+        client.list_services()
+
+
+@respx.mock
 def test_server_error_raises_registry_unavailable(client):
     respx.get(f"{BASE_URL}/api/v1/services").mock(return_value=httpx.Response(500))
 

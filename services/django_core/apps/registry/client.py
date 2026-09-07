@@ -130,10 +130,8 @@ class RegistryClient:
         try:
             with httpx.Client(timeout=self._timeout) as client:
                 response = client.request(method, url, json=json, headers=headers)
-        except httpx.TimeoutException as exc:
-            raise RegistryUnavailable(f"{method} {path} timed out after {self._timeout}s") from exc
-        except httpx.ConnectError as exc:
-            raise RegistryUnavailable(f"could not reach registry at {self._base_url}") from exc
+        except httpx.TransportError as exc:
+            raise RegistryUnavailable(f"{method} {path} failed: {exc}") from exc
 
         if response.status_code == 401:
             raise RegistryAuthError("registry rejected the internal secret")
