@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 
 import httpx
@@ -87,10 +88,27 @@ def test_create_service_returns_dto(client):
         name="payments-api",
         environment=Environment.PRODUCTION,
         health_check_url="http://localhost:8001/mock/health",
+        auth_token="raw-token",
     )
 
     assert service.name == "payments-api"
     assert service.status == ServiceStatus.UNKNOWN
+
+
+@respx.mock
+def test_create_service_sends_auth_token(client):
+    route = respx.post(f"{BASE_URL}/api/v1/services").mock(
+        return_value=httpx.Response(201, json=_service_payload())
+    )
+
+    client.create_service(
+        name="payments-api",
+        environment=Environment.PRODUCTION,
+        health_check_url="http://localhost:8001/mock/health",
+        auth_token="raw-token",
+    )
+
+    assert json.loads(route.calls.last.request.content)["auth_token"] == "raw-token"
 
 
 @respx.mock
@@ -104,6 +122,7 @@ def test_create_service_sends_internal_secret_header(client, settings):
         name="payments-api",
         environment=Environment.PRODUCTION,
         health_check_url="http://localhost:8001/mock/health",
+        auth_token="raw-token",
     )
 
     assert route.calls.last.request.headers["X-Internal-Secret"] == "the-shared-secret"
@@ -118,6 +137,7 @@ def test_create_service_duplicate_name_raises(client):
             name="payments-api",
             environment=Environment.PRODUCTION,
             health_check_url="http://localhost:8001/mock/health",
+            auth_token="raw-token",
         )
 
 
