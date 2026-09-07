@@ -28,5 +28,61 @@ services:
       timeout: 5s
       retries: 5
 
+  # --- Application tier ---
+  #
+  # Neither service runs migrations on startup. Handbook §7 makes those a deliberate
+  # `make migrate` step, and an image that migrates on boot has every replica racing
+  # to mutate the schema on deploy. After `docker compose up`, run them explicitly:
+  #   docker compose exec django  python services/django_core/manage.py migrate
+  #   docker compose exec fastapi sh -c 'cd services/fastapi_registry && alembic upgrade head'
+
+  django:
+    build:
+      # Context is the repo root: the build needs the root pyproject.toml and uv.lock.
+      context: .
+      dockerfile: services/django_core/Dockerfile
+    image: devpulse-django
+    container_name: devpulse-django
+    restart: unless-stopped
+    environment:
+      # Inside the compose network the database answers to its service name.
+      # `localhost` here would be this container, not Postgres.
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      CORE_DB_NAME: "${CORE_DB_NAME:-core_db}"
+      DJANGO_DB_USER: "${DJANGO_DB_USER:-django_user}"
+      DJANGO_DB_PASSWORD: "${DJANGO_DB_PASSWORD:?not set — see README, Local database}"
+      DJANGO_SECRET_KEY: "${DJANGO_SECRET_KEY:?not set — copy .env.example to .env}"
+      # Containers run the production configuration, which means ALLOWED_HOSTS must be
+      # non-empty: with DEBUG=False and an empty list Django rejects every request with
+      # a 400 before it reaches any view.
+      DJANGO_DEBUG: "False"
+      DJANGO_ALLOWED_HOSTS: "${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}"
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  fastapi:
+    build:
+      context: .
+      dockerfile: services/fastapi_registry/Dockerfile
+    image: devpulse-fastapi
+    container_name: devpulse-fastapi
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      SERVICES_DB_NAME: "${SERVICES_DB_NAME:-services_db}"
+      FASTAPI_DB_USER: "${FASTAPI_DB_USER:-fastapi_user}"
+      FASTAPI_DB_PASSWORD: "${FASTAPI_DB_PASSWORD:?not set — see README, Local database}"
+      INTERNAL_SECRET_TOKEN: "${INTERNAL_SECRET_TOKEN:?not set — copy .env.example to .env}"
+    ports:
+      - "127.0.0.1:8001:8001"
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   postgres_data:
