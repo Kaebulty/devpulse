@@ -57,6 +57,14 @@ INSTALLED_APPS = [
 
 AUTH_USER_MODEL = 'accounts.User'
 
+LOGIN_URL = 'login'
+LOGIN_REDIRECT_URL = 'home'
+LOGOUT_REDIRECT_URL = 'login'
+
+# No DRF TokenAuthentication yet: the primary UI is server-rendered HTMX, which uses
+# the session cookie set by DevPulseLoginView below. Only revisit this if the optional
+# React frontend actually happens.
+
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
