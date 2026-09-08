@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'apps.accounts',
+    'apps.registry',
 ]
 
 AUTH_USER_MODEL = 'accounts.User'
@@ -64,6 +65,12 @@ LOGOUT_REDIRECT_URL = 'login'
 # No DRF TokenAuthentication yet: the primary UI is server-rendered HTMX, which uses
 # the session cookie set by DevPulseLoginView below. Only revisit this if the optional
 # React frontend actually happens.
+
+# --- Internal trust boundary to services/fastapi_registry (apps.registry.client) ---
+FASTAPI_REGISTRY_URL = os.environ.get("FASTAPI_REGISTRY_URL", "http://localhost:8001")
+INTERNAL_SECRET_TOKEN = os.environ.get(
+    "INTERNAL_SECRET_TOKEN", "insecure-test-token-do-not-use-in-prod"
+)
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
