@@ -98,12 +98,13 @@ class RegistryClient:
         return [Service.from_api(item) for item in response.json()]
 
     def create_service(
-        self, *, name: str, environment: Environment, health_check_url: str
+        self, *, name: str, environment: Environment, health_check_url: str, auth_token: str
     ) -> Service:
         payload = {
             "name": name,
             "environment": environment.value,
             "health_check_url": health_check_url,
+            "auth_token": auth_token,
         }
         response = self._send("POST", "/api/v1/services", json=payload, expected={201, 409})
         if response.status_code == 409:
