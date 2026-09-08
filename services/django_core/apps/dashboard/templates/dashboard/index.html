@@ -1,0 +1,18 @@
+{% extends "dashboard/base.html" %}
+
+{% block title %}DevPulse — Service Registry{% endblock %}
+
+{% block content %}
+  <div class="mb-6 flex items-center justify-between">
+    <h1 class="text-xl font-semibold">Service Registry</h1>
+    <span class="text-xs text-slate-400">refreshes every 15s</span>
+  </div>
+
+  <div id="service-list"
+       aria-live="polite"
+       hx-get="{% url 'dashboard-services' %}"
+       hx-trigger="every 15s"
+       hx-swap="innerHTML">
+    {% include "dashboard/_service_list.html" %}
+  </div>
+{% endblock %}
