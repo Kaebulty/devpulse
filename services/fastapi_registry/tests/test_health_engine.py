@@ -62,6 +62,35 @@ async def test_check_service_healthy() -> None:
 
 
 @respx.mock
+async def test_check_service_sends_bearer_token_when_service_has_one() -> None:
+    """Regression: ServiceCreate used to silently drop auth_token, so this header
+    never went out at all regardless of what Django sent — vault verification was
+    dead code on the request path. Proven against the pre-fix code: with the old
+    `headers: dict[str, str] = {}` this assertion fails.
+    """
+    route = respx.get("http://svc/health").mock(return_value=httpx.Response(200))
+    service = ServiceModel(id=1, name="svc", environment="development",
+                           health_check_url="http://svc/health", auth_token="s3cr3t")
+
+    async with httpx.AsyncClient() as client:
+        await check_service(client, service)
+
+    assert route.calls.last.request.headers["Authorization"] == "Bearer s3cr3t"
+
+
+@respx.mock
+async def test_check_service_sends_no_auth_header_without_a_token() -> None:
+    route = respx.get("http://svc/health").mock(return_value=httpx.Response(200))
+    service = ServiceModel(id=1, name="svc", environment="development",
+                           health_check_url="http://svc/health")
+
+    async with httpx.AsyncClient() as client:
+        await check_service(client, service)
+
+    assert "Authorization" not in route.calls.last.request.headers
+
+
+@respx.mock
 async def test_check_service_maps_500_to_unhealthy() -> None:
     respx.get("http://svc/health").mock(return_value=httpx.Response(500))
     service = ServiceModel(id=1, name="svc", environment="development",

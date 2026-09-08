@@ -60,10 +60,12 @@ async def check_service(client: httpx.AsyncClient, service: ServiceModel) -> Che
     Never raises: any transport failure is a verdict about the service, not an error in
     the engine. Letting it propagate would take down the whole cycle.
     """
-    # Where the vault token goes once Django's /api/v1/vault/verify/ exists
-    # (handbook §4.5): the target verifies this bearer against Django, and revoking
-    # the key flips the service to UNHEALTHY via a 401. Empty until that ticket lands.
-    headers: dict[str, str] = {}
+    # The target verifies this bearer against Django's /api/v1/vault/verify/
+    # (handbook §4.5); revoking the key flips the service to UNHEALTHY via a 401.
+    # Absent for services registered without a vault token (e.g. local testing).
+    headers: dict[str, str] = (
+        {"Authorization": f"Bearer {service.auth_token}"} if service.auth_token else {}
+    )
 
     # perf_counter is monotonic. Wall-clock time can step backwards under an NTP
     # correction, which would produce negative latencies.

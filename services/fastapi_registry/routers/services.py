@@ -45,6 +45,7 @@ async def create_service(payload: ServiceCreate, session: SessionDep) -> Service
         environment=payload.environment.value,
         # HttpUrl is not a str; the column is. Convert explicitly.
         health_check_url=str(payload.health_check_url),
+        auth_token=payload.auth_token,
     )
     session.add(service)
 
