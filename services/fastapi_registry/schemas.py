@@ -38,6 +38,9 @@ class ServiceCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100, examples=["payments-api"])
     environment: Environment
     health_check_url: HttpUrl = Field(examples=["http://localhost:8001/mock/health"])
+    # Optional: a service can be registered without vault security (e.g. local/manual
+    # testing). Deliberately absent from ServiceRead — write-only, never echoed back.
+    auth_token: str | None = None
 
 
 class ServiceRead(BaseModel):

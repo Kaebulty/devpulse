@@ -33,5 +33,11 @@ class ServiceModel(Base):
         DateTime(timezone=True), default=None
     )
 
+    # The vault bearer token (handbook §4.5), set once at creation by Django and sent
+    # as `Authorization: Bearer <token>` on every health ping. Nullable: a service can
+    # be registered without vault security (e.g. local/manual testing). Never exposed
+    # on ServiceRead — this is write-only from the API's perspective.
+    auth_token: Mapped[str | None] = mapped_column(String(255), default=None)
+
     def __repr__(self) -> str:
         return f"<ServiceModel id={self.id} name={self.name!r} status={self.status!r}>"

@@ -106,6 +106,24 @@ async def test_new_service_reports_no_health_data_yet(
     assert body["last_checked_at"] is None
 
 
+async def test_auth_token_is_accepted_but_never_returned(
+    client: AsyncClient, auth_headers: dict[str, str], session: AsyncSession
+) -> None:
+    """The vault token is write-only: stored for the health engine, never echoed back.
+
+    Regression: ServiceCreate previously had no `auth_token` field at all, so Pydantic
+    silently dropped it — every service's health ping went out with no bearer token
+    regardless of what Django sent.
+    """
+    payload = PAYLOAD | {"auth_token": "s3cr3t-token"}
+    created = await client.post("/api/v1/services", json=payload, headers=auth_headers)
+    assert created.status_code == 201
+    assert "auth_token" not in created.json()
+
+    stored = await session.get(ServiceModel, created.json()["id"])
+    assert stored.auth_token == "s3cr3t-token"
+
+
 async def test_api_exposes_health_data_written_by_the_engine(
     client: AsyncClient, auth_headers: dict[str, str], session: AsyncSession
 ) -> None:
