@@ -32,3 +32,8 @@ htmlcov/
 # declares `readme = "README.md"`, so the uv_build backend fails without it.
 Makefile
 docker/
+
+# Test suites — not needed at runtime. Recursive glob so it covers every app's
+# tests/ (services/fastapi_registry/tests/, services/django_core/apps/*/tests/)
+# without hardcoding per-app paths.
+**/tests/
