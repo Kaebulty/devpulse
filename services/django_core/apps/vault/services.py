@@ -16,6 +16,8 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
+from apps.audit.models import AuditEvent
+from apps.audit.services import log_event
 from apps.registry.client import Environment, RegistryClient, Service, ServiceCreateRequest
 
 from .models import ApiKey
@@ -53,6 +55,9 @@ def create_service_with_key(
     )
     ApiKey.objects.create(
         service_id=service.id, key_hash=make_password(raw_token), created_by=created_by
+    )
+    log_event(
+        actor=created_by, action=AuditEvent.Action.SERVICE_KEY_CREATED, service_id=service.id
     )
     return service, raw_token
 
@@ -110,10 +115,17 @@ def rotate_key(service_id: int, created_by) -> str:
     # Django has never seen.
     RegistryClient().update_service_token(service_id, raw_token)
 
+    # Only logged once the push succeeds too: a rotation that raised above is
+    # incomplete and safely retryable (the old key still verifies), not an event
+    # that actually happened from the caller's perspective.
+    log_event(
+        actor=created_by, action=AuditEvent.Action.SERVICE_KEY_ROTATED, service_id=service_id
+    )
+
     return raw_token
 
 
-def revoke_key(service_id: int) -> None:
+def revoke_key(service_id: int, actor) -> None:
     """Kill every key that currently verifies for this service, immediately.
 
     Uses the same predicate as `verify_token`, not just `revoked_at IS NULL`: after a
@@ -121,6 +133,12 @@ def revoke_key(service_id: int) -> None:
     filtering on NULL alone would leave it alive — and revoke exists precisely to
     stop a service's credentials working right now.
     """
-    ApiKey.objects.filter(_still_valid(), service_id=service_id).update(
+    revoked = ApiKey.objects.filter(_still_valid(), service_id=service_id).update(
         revoked_at=timezone.now()
     )
+    # Only logged if a key was actually killed — a no-op revoke (nothing was active)
+    # isn't a security event worth recording as one.
+    if revoked:
+        log_event(
+            actor=actor, action=AuditEvent.Action.SERVICE_KEY_REVOKED, service_id=service_id
+        )

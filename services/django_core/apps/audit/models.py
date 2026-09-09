@@ -34,6 +34,9 @@ class AuditEvent(models.Model):
         LOGIN_SUCCEEDED = "LOGIN_SUCCEEDED", "Login succeeded"
         LOGIN_FAILED = "LOGIN_FAILED", "Login failed"
         LOGOUT = "LOGOUT", "Logout"
+        SERVICE_KEY_CREATED = "SERVICE_KEY_CREATED", "Service key created"
+        SERVICE_KEY_ROTATED = "SERVICE_KEY_ROTATED", "Service key rotated"
+        SERVICE_KEY_REVOKED = "SERVICE_KEY_REVOKED", "Service key revoked"
 
     actor = models.ForeignKey(
         settings.AUTH_USER_MODEL,
