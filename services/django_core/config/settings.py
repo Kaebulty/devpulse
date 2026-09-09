@@ -70,6 +70,15 @@ LOGOUT_REDIRECT_URL = 'login'
 
 # --- Internal trust boundary to services/fastapi_registry (apps.registry.client) ---
 FASTAPI_REGISTRY_URL = os.environ.get("FASTAPI_REGISTRY_URL", "http://localhost:8001")
+# How long a rotated-out key keeps verifying. Rotation writes to two systems with no
+# shared transaction, so an overlap window is what makes the ordering safe: if pushing
+# the new token to FastAPI fails, the old key still works and the call can be retried.
+# Five minutes is ~5 health-check cycles — enough slack to survive a missed cycle or a
+# FastAPI restart mid-rotation, short enough that a leaked old key isn't useful for long.
+VAULT_KEY_ROTATION_GRACE_SECONDS = int(
+    os.environ.get("VAULT_KEY_ROTATION_GRACE_SECONDS", 300)
+)
+
 INTERNAL_SECRET_TOKEN = os.environ.get(
     "INTERNAL_SECRET_TOKEN", "insecure-test-token-do-not-use-in-prod"
 )

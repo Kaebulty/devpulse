@@ -1,15 +1,29 @@
 import json
 import secrets
+from datetime import timedelta
+from unittest.mock import patch
 
 import httpx
 import pytest
 import respx
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import check_password, make_password
+from django.db.utils import IntegrityError
+from django.utils import timezone
 
-from apps.registry.client import DuplicateServiceName, Environment
+from apps.registry.client import (
+    DuplicateServiceName,
+    Environment,
+    RegistryClient,
+    RegistryUnavailable,
+)
 from apps.vault.models import ApiKey
-from apps.vault.services import create_service_with_key, revoke_key, verify_token
+from apps.vault.services import (
+    create_service_with_key,
+    revoke_key,
+    rotate_key,
+    verify_token,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -111,3 +125,102 @@ def _create_key(created_by, *, service_id: int) -> tuple[ApiKey, str]:
         service_id=service_id, key_hash=make_password(raw_token), created_by=created_by
     )
     return key, raw_token
+
+
+# --- rotation ---------------------------------------------------------------------
+
+
+@pytest.fixture
+def issued(admin_user):
+    """A service with one current key, and the raw token it was issued."""
+    raw = secrets.token_urlsafe(32)
+    ApiKey.objects.create(service_id=1, key_hash=make_password(raw), created_by=admin_user)
+    return raw
+
+
+@pytest.mark.django_db
+def test_rotation_keeps_the_old_token_valid_during_the_grace_window(
+    issued, admin_user, settings
+):
+    """The core guarantee: both tokens verify during the overlap.
+
+    This is the whole reason rotation is not an instant swap — it is what stops the
+    service failing a health check between Django rotating and FastAPI picking up
+    the new token.
+    """
+    settings.VAULT_KEY_ROTATION_GRACE_SECONDS = 300
+
+    with patch.object(RegistryClient, "update_service_token") as push:
+        new = rotate_key(1, created_by=admin_user)
+
+    push.assert_called_once_with(1, new)
+    assert verify_token(issued) is True, "old token must still verify during grace"
+    assert verify_token(new) is True, "new token must verify immediately"
+
+
+@pytest.mark.django_db
+def test_old_token_stops_verifying_once_the_window_elapses(issued, admin_user, settings):
+    settings.VAULT_KEY_ROTATION_GRACE_SECONDS = 300
+
+    with patch.object(RegistryClient, "update_service_token"):
+        new = rotate_key(1, created_by=admin_user)
+
+    # Move the retirement into the past rather than mocking the clock.
+    retired = ApiKey.objects.get(service_id=1, revoked_at__isnull=False)
+    retired.revoked_at = timezone.now() - timedelta(seconds=1)
+    retired.save()
+
+    assert verify_token(issued) is False
+    assert verify_token(new) is True
+
+
+@pytest.mark.django_db
+def test_a_failed_push_to_fastapi_leaves_the_old_key_working(issued, admin_user):
+    """The failure mode the overlap design exists to prevent.
+
+    With an instant swap this would leave the service with no valid key anywhere,
+    needing manual repair. Here the old key carries it until a retry succeeds.
+    """
+    with patch.object(
+        RegistryClient, "update_service_token", side_effect=RegistryUnavailable("down")
+    ), pytest.raises(RegistryUnavailable):
+        rotate_key(1, created_by=admin_user)
+
+    assert verify_token(issued) is True, "old key must survive a failed push"
+
+
+@pytest.mark.django_db
+def test_only_one_current_key_per_service_is_allowed(issued, admin_user):
+    """The partial unique index must actually bite."""
+    with pytest.raises(IntegrityError):
+        ApiKey.objects.create(
+            service_id=1, key_hash=make_password("another"), created_by=admin_user
+        )
+
+
+@pytest.mark.django_db
+def test_rotation_permits_many_retired_keys_for_one_service(issued, admin_user):
+    """Retired keys accumulate as an audit trail; only the current one is constrained."""
+    with patch.object(RegistryClient, "update_service_token"):
+        rotate_key(1, created_by=admin_user)
+        rotate_key(1, created_by=admin_user)
+
+    assert ApiKey.objects.filter(service_id=1).count() == 3
+    assert ApiKey.objects.filter(service_id=1, revoked_at__isnull=True).count() == 1
+
+
+@pytest.mark.django_db
+def test_rotating_a_service_with_no_key_raises(admin_user):
+    with pytest.raises(ValueError, match="no current key"):
+        rotate_key(999, created_by=admin_user)
+
+
+@pytest.mark.django_db
+def test_revoke_still_kills_instantly(issued):
+    """Regression on the revoked_at semantics change.
+
+    revoked_at now means "stops working at", so revocation sets it to now — a key
+    revoked this instant must not benefit from any grace.
+    """
+    revoke_key(1)
+    assert verify_token(issued) is False
