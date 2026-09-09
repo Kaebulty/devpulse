@@ -151,3 +151,94 @@ async def test_api_exposes_health_data_written_by_the_engine(
     assert body["status"] == "DEGRADED"
     assert body["latency_ms"] == 1208
     assert body["last_checked_at"].startswith("2026-09-02T12:30")
+
+
+# --- PATCH: partial update -------------------------------------------------------
+
+
+async def _create(client: AsyncClient, headers: dict[str, str]) -> int:
+    response = await client.post("/api/v1/services", json=PAYLOAD, headers=headers)
+    return response.json()["id"]
+
+
+async def test_patch_sets_simulation_url(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    service_id = await _create(client, auth_headers)
+
+    response = await client.patch(
+        f"/api/v1/services/{service_id}",
+        json={"simulation_url": "http://localhost:8001/mock/health?status=503"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["simulation_url"] == "http://localhost:8001/mock/health?status=503"
+
+
+async def test_patch_clears_simulation_url_with_explicit_null(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    service_id = await _create(client, auth_headers)
+    await client.patch(
+        f"/api/v1/services/{service_id}",
+        json={"simulation_url": "http://localhost:8001/mock/health?status=503"},
+        headers=auth_headers,
+    )
+
+    response = await client.patch(
+        f"/api/v1/services/{service_id}", json={"simulation_url": None}, headers=auth_headers
+    )
+
+    assert response.json()["simulation_url"] is None
+
+
+async def test_patch_leaves_omitted_fields_untouched(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """Absent is not null — the whole reason this is a PATCH and not a PUT.
+
+    Rotating a token must not silently wipe an active simulation, and setting a
+    simulation must not wipe the token. Both are one `exclude_unset` away from
+    being wrong, and neither would be noticed until a demo.
+    """
+    service_id = await _create(client, auth_headers)
+    await client.patch(
+        f"/api/v1/services/{service_id}",
+        json={"simulation_url": "http://localhost:8001/mock/health?delay=2"},
+        headers=auth_headers,
+    )
+
+    # Touch only auth_token; the simulation must survive.
+    response = await client.patch(
+        f"/api/v1/services/{service_id}", json={"auth_token": "rotated"}, headers=auth_headers
+    )
+
+    assert response.json()["simulation_url"] == "http://localhost:8001/mock/health?delay=2"
+
+
+async def test_patch_never_returns_the_auth_token(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    service_id = await _create(client, auth_headers)
+
+    response = await client.patch(
+        f"/api/v1/services/{service_id}", json={"auth_token": "s3cr3t"}, headers=auth_headers
+    )
+
+    assert "auth_token" not in response.json()
+    assert "s3cr3t" not in response.text
+
+
+async def test_patch_unknown_id_is_not_found(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    response = await client.patch(
+        "/api/v1/services/9999", json={"auth_token": "x"}, headers=auth_headers
+    )
+    assert response.status_code == 404
+
+
+async def test_patch_requires_the_internal_secret(client: AsyncClient) -> None:
+    response = await client.patch("/api/v1/services/1", json={"auth_token": "x"})
+    assert response.status_code == 401

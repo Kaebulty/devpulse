@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from services.fastapi_registry.database import get_session
 from services.fastapi_registry.models import ServiceModel
-from services.fastapi_registry.schemas import ServiceCreate, ServiceRead
+from services.fastapi_registry.schemas import ServiceCreate, ServiceRead, ServiceUpdate
 from services.fastapi_registry.security import verify_internal_secret
 
 router = APIRouter(
@@ -60,6 +60,34 @@ async def create_service(payload: ServiceCreate, session: SessionDep) -> Service
             detail=f"A service named {payload.name!r} already exists",
         ) from exc
 
+    await session.refresh(service)
+    return service
+
+
+@router.patch("/{service_id}", response_model=ServiceRead)
+async def update_service(
+    service_id: int, payload: ServiceUpdate, session: SessionDep
+) -> ServiceModel:
+    """Partially update a registered service.
+
+    Used by the vault to rotate `auth_token`, and by Chaos Controls to point
+    `simulation_url` at a mock target. `exclude_unset` is what makes this a real
+    PATCH: a field the caller omitted is left alone, while an explicit null
+    clears it. Without it, rotating a token would silently wipe any active
+    simulation, and vice versa.
+    """
+    service = await session.get(ServiceModel, service_id)
+    if service is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No service with id {service_id}",
+        )
+
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        # HttpUrl is not a str; the columns are.
+        setattr(service, field, str(value) if value is not None else None)
+
+    await session.commit()
     await session.refresh(service)
     return service
 

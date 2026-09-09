@@ -39,5 +39,12 @@ class ServiceModel(Base):
     # on ServiceRead — this is write-only from the API's perspective.
     auth_token: Mapped[str | None] = mapped_column(String(255), default=None)
 
+    # Set by the Chaos Controls dropdown to point health checks at a mock target
+    # instead of the real one. Deliberately a URL override rather than a
+    # `simulated_status` column: the ping still happens, only its destination is
+    # simulated, so latency and status stay genuinely measured rather than
+    # fabricated. Handbook §4.4 has FastAPI run a real ping on preset selection.
+    simulation_url: Mapped[str | None] = mapped_column(String(500), default=None)
+
     def __repr__(self) -> str:
         return f"<ServiceModel id={self.id} name={self.name!r} status={self.status!r}>"
