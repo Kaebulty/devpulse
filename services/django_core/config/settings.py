@@ -55,12 +55,13 @@ INSTALLED_APPS = [
     'apps.accounts',
     'apps.registry',
     'apps.vault',
+    'apps.dashboard',
 ]
 
 AUTH_USER_MODEL = 'accounts.User'
 
 LOGIN_URL = 'login'
-LOGIN_REDIRECT_URL = 'home'
+LOGIN_REDIRECT_URL = 'dashboard-index'
 LOGOUT_REDIRECT_URL = 'login'
 
 # No DRF TokenAuthentication yet: the primary UI is server-rendered HTMX, which uses

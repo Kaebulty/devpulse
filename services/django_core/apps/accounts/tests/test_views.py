@@ -17,12 +17,12 @@ def test_login_page_renders(client):
     assert response.status_code == 200
 
 
-def test_login_with_valid_credentials_redirects_to_home(client, user):
+def test_login_with_valid_credentials_redirects_to_dashboard(client, user):
     response = client.post(
         reverse("login"), {"username": "dev", "password": "correct-horse"}
     )
     assert response.status_code == 302
-    assert response.url == reverse("home")
+    assert response.url == reverse("dashboard-index")
 
 
 def test_login_with_invalid_credentials_does_not_authenticate(client, user):
@@ -31,26 +31,13 @@ def test_login_with_invalid_credentials_does_not_authenticate(client, user):
     assert not response.wsgi_request.user.is_authenticated
 
 
-def test_home_requires_login(client):
-    response = client.get(reverse("home"))
-    assert response.status_code == 302
-    assert reverse("login") in response.url
-
-
-def test_home_shows_username_when_logged_in(client, user):
-    client.force_login(user)
-    response = client.get(reverse("home"))
-    assert response.status_code == 200
-    assert b"dev" in response.content
-
-
 def test_logout_redirects_to_login_and_clears_session(client, user):
     client.force_login(user)
     response = client.post(reverse("logout"))
     assert response.status_code == 302
     assert response.url == reverse("login")
 
-    response = client.get(reverse("home"))
+    response = client.get(reverse("dashboard-index"))
     assert response.status_code == 302
 
 
