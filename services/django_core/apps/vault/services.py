@@ -12,7 +12,7 @@ import secrets
 from django.contrib.auth.hashers import check_password, make_password
 from django.utils import timezone
 
-from apps.registry.client import Environment, RegistryClient, Service
+from apps.registry.client import Environment, RegistryClient, Service, ServiceCreateRequest
 
 from .models import ApiKey
 
@@ -29,10 +29,12 @@ def create_service_with_key(
     """
     raw_token = secrets.token_urlsafe(32)
     service = RegistryClient().create_service(
-        name=name,
-        environment=environment,
-        health_check_url=health_check_url,
-        auth_token=raw_token,
+        ServiceCreateRequest(
+            name=name,
+            environment=environment,
+            health_check_url=health_check_url,
+            auth_token=raw_token,
+        )
     )
     ApiKey.objects.create(
         service_id=service.id, key_hash=make_password(raw_token), created_by=created_by

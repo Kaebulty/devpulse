@@ -57,6 +57,24 @@ class Service:
         )
 
 
+@dataclass(frozen=True)
+class ServiceCreateRequest:
+    """What it takes to register a new service, mirroring FastAPI's ServiceCreate."""
+
+    name: str
+    environment: Environment
+    health_check_url: str
+    auth_token: str
+
+    def to_payload(self) -> dict:
+        return {
+            "name": self.name,
+            "environment": self.environment.value,
+            "health_check_url": self.health_check_url,
+            "auth_token": self.auth_token,
+        }
+
+
 class RegistryClientError(Exception):
     """Base class for every error this client raises."""
 
@@ -86,6 +104,15 @@ class DuplicateServiceName(RegistryClientError):
     """
 
 
+# Django runs Gunicorn with sync workers (no --threads), so each worker process
+# handles one request at a time — a client shared at module scope needs no locking
+# and gives every request in that worker a warm, pooled connection to FastAPI
+# instead of paying a fresh TCP (and TLS, in prod) handshake per call. Never
+# explicitly closed: it lives for the worker process's lifetime, same as e.g. a
+# pooled DB connection would.
+_shared_client = httpx.Client()
+
+
 class RegistryClient:
     """Client for the FastAPI service registry, across the X-Internal-Secret boundary."""
 
@@ -97,18 +124,12 @@ class RegistryClient:
         response = self._send("GET", "/api/v1/services", expected={200})
         return [Service.from_api(item) for item in response.json()]
 
-    def create_service(
-        self, *, name: str, environment: Environment, health_check_url: str, auth_token: str
-    ) -> Service:
-        payload = {
-            "name": name,
-            "environment": environment.value,
-            "health_check_url": health_check_url,
-            "auth_token": auth_token,
-        }
-        response = self._send("POST", "/api/v1/services", json=payload, expected={201, 409})
+    def create_service(self, request: ServiceCreateRequest) -> Service:
+        response = self._send(
+            "POST", "/api/v1/services", json=request.to_payload(), expected={201, 409}
+        )
         if response.status_code == 409:
-            raise DuplicateServiceName(f"a service named {name!r} is already registered")
+            raise DuplicateServiceName(f"a service named {request.name!r} is already registered")
         return Service.from_api(response.json())
 
     def delete_service(self, service_id: int) -> None:
@@ -129,8 +150,9 @@ class RegistryClient:
         url = f"{self._base_url}{path}"
         headers = {"X-Internal-Secret": settings.INTERNAL_SECRET_TOKEN}
         try:
-            with httpx.Client(timeout=self._timeout) as client:
-                response = client.request(method, url, json=json, headers=headers)
+            response = _shared_client.request(
+                method, url, json=json, headers=headers, timeout=self._timeout
+            )
         except httpx.TransportError as exc:
             raise RegistryUnavailable(f"{method} {path} failed: {exc}") from exc
 
