@@ -1,0 +1,7 @@
+@import "tailwindcss";
+
+/* Explicit rather than relying on v4's auto-detection default (which scans from
+   the current working directory the CLI is invoked from) — this always resolves
+   to every app's templates regardless of where `make tailwind-build` is run from,
+   and covers new apps automatically as they add templates. */
+@source "../apps/**/templates";

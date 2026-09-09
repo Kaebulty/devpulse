@@ -24,10 +24,36 @@ COPY src/ ./src/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-editable
 
-# NOTE: no `collectstatic`. STATIC_ROOT is not configured in config/settings.py, so
-# the command would fail, and with DEBUG=False Django does not serve static files
-# anyway. This needs revisiting when the HTMX/Tailwind dashboard lands, which is
-# where static handling actually becomes necessary.
+# App source is needed from here on: Tailwind's `@source` scans apps/**/templates
+# for class names, and collectstatic's app-directories finder needs apps/*/static/.
+COPY services/__init__.py ./services/
+COPY services/django_core/ ./services/django_core/
+
+# Compile Tailwind CSS with the same pinned, checksum-verified standalone CLI make
+# uses locally — no Node/npm in the image. Verified against sha256sums.txt from the
+# same GitHub release, same as the Makefile's local download.
+ARG TAILWIND_VERSION=v4.3.3
+RUN set -eu; \
+    curl -fsSL -o /tmp/tailwindcss \
+      "https://github.com/tailwindlabs/tailwindcss/releases/download/${TAILWIND_VERSION}/tailwindcss-linux-x64"; \
+    curl -fsSL -o /tmp/sha256sums.txt \
+      "https://github.com/tailwindlabs/tailwindcss/releases/download/${TAILWIND_VERSION}/sha256sums.txt"; \
+    expected="$(grep 'tailwindcss-linux-x64$' /tmp/sha256sums.txt | awk '{print $1}')"; \
+    actual="$(sha256sum /tmp/tailwindcss | awk '{print $1}')"; \
+    [ -n "$expected" ] && [ "$expected" = "$actual" ]; \
+    chmod +x /tmp/tailwindcss
+
+RUN cd services/django_core && \
+    /tmp/tailwindcss -i tailwind/input.css \
+      -o apps/dashboard/static/dashboard/css/output.css --minify
+
+# INTERNAL_SECRET_TOKEN only needs to be *set* for settings.py to import cleanly
+# (see the pytest-django gotcha in CLAUDE.md) — collectstatic never uses its value.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    DJANGO_SETTINGS_MODULE=config.settings \
+    PYTHONPATH=/app/services/django_core \
+    INTERNAL_SECRET_TOKEN=build-time-placeholder \
+    uv run --no-sync python services/django_core/manage.py collectstatic --noinput
 
 # ---------- runtime ----------
 # Same Debian release and Python minor as the builder, so the copied virtualenv
@@ -42,6 +68,13 @@ COPY --from=builder --chown=devpulse:devpulse /app/.venv /app/.venv
 
 COPY --chown=devpulse:devpulse services/__init__.py ./services/
 COPY --chown=devpulse:devpulse services/django_core/ ./services/django_core/
+
+# The compiled+hashed static bundle whitenoise serves at runtime — collectstatic's
+# manifest storage produces content-hashed filenames (e.g. output.<hash>.css) that
+# {% static %} resolves through the manifest, not the raw uncompiled app static/
+# dirs the line above already copied.
+COPY --from=builder --chown=devpulse:devpulse \
+    /app/services/django_core/staticfiles ./services/django_core/staticfiles
 
 # config.wsgi lives under services/django_core rather than the repo root, mirroring
 # the `pythonpath` that pyproject.toml already sets for pytest.

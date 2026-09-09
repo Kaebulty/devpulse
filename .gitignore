@@ -28,6 +28,11 @@ htmlcov/
 *.sqlite3
 staticfiles/
 
+# Tailwind CLI: downloaded standalone binary (platform-specific, not committed) and
+# its compiled output (a build artifact of tailwind/input.css, the real source).
+/.bin/
+services/django_core/apps/dashboard/static/dashboard/css/output.css
+
 # IDEs / OS
 .idea/
 .vscode/
