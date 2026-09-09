@@ -1,0 +1,44 @@
+{% extends "dashboard/base.html" %}
+
+{% block title %}DevPulse — Audit Log{% endblock %}
+
+{% block content %}
+  <div class="mb-6 flex items-center justify-between">
+    <h1 class="text-xl font-semibold">Audit Log</h1>
+  </div>
+
+  {% if events %}
+    <div class="divide-y divide-slate-100 overflow-hidden rounded-lg border border-slate-200 bg-white">
+      {% for event in events %}
+        <div class="flex items-center justify-between px-5 py-4 text-sm">
+          <div>
+            <span class="font-medium">{{ event.get_action_display }}</span>
+            <span class="text-slate-400">
+              {% if event.actor %}by {{ event.actor.username }}{% else %}(unauthenticated){% endif %}
+            </span>
+          </div>
+          <span class="text-xs text-slate-400">{{ event.created_at|date:"Y-m-d H:i:s" }} UTC</span>
+        </div>
+      {% endfor %}
+    </div>
+
+    {% if is_paginated %}
+      <div class="mt-4 flex justify-between text-sm">
+        <span>
+          {% if page_obj.has_previous %}
+            <a href="?page={{ page_obj.previous_page_number }}" class="text-slate-500 hover:text-slate-800">&larr; Newer</a>
+          {% endif %}
+        </span>
+        <span>
+          {% if page_obj.has_next %}
+            <a href="?page={{ page_obj.next_page_number }}" class="text-slate-500 hover:text-slate-800">Older &rarr;</a>
+          {% endif %}
+        </span>
+      </div>
+    {% endif %}
+  {% else %}
+    <div class="rounded-lg border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-500">
+      No audit events yet.
+    </div>
+  {% endif %}
+{% endblock %}
