@@ -21,6 +21,17 @@ from apps.registry.client import Environment, RegistryClient, Service, ServiceCr
 from .models import ApiKey
 
 
+def _still_valid() -> Q:
+    """Keys that currently verify.
+
+    `revoked_at` is when a key stops working, so a future value is still valid —
+    that is what gives a rotated-out key its grace window. Shared deliberately:
+    `verify_token` and `revoke_key` must agree on what "valid" means, and when they
+    disagreed, revoking a service mid-rotation left the retiring key alive.
+    """
+    return Q(revoked_at__isnull=True) | Q(revoked_at__gt=timezone.now())
+
+
 def create_service_with_key(
     *, name: str, environment: Environment, health_check_url: str, created_by
 ) -> tuple[Service, str]:
@@ -54,13 +65,8 @@ def verify_token(raw_token: str) -> bool:
     once per service per ~60s health-check cycle, so it's negligible at this
     scale — an indexed design would be solving a problem this app doesn't have.
     """
-    # `revoked_at` is when a key stops working, so a future value is still valid —
-    # that is what gives a rotated-out key its grace window. Filtering on
-    # `revoked_at__isnull=True` alone would silently turn rotation into instant
-    # revocation, which is the exact failure the overlap design exists to avoid.
-    current = Q(revoked_at__isnull=True) | Q(revoked_at__gt=timezone.now())
     return any(
-        check_password(raw_token, key.key_hash) for key in ApiKey.objects.filter(current)
+        check_password(raw_token, key.key_hash) for key in ApiKey.objects.filter(_still_valid())
     )
 
 
@@ -108,6 +114,13 @@ def rotate_key(service_id: int, created_by) -> str:
 
 
 def revoke_key(service_id: int) -> None:
-    ApiKey.objects.filter(service_id=service_id, revoked_at__isnull=True).update(
+    """Kill every key that currently verifies for this service, immediately.
+
+    Uses the same predicate as `verify_token`, not just `revoked_at IS NULL`: after a
+    rotation the retiring key has a *future* `revoked_at` and still verifies, so
+    filtering on NULL alone would leave it alive — and revoke exists precisely to
+    stop a service's credentials working right now.
+    """
+    ApiKey.objects.filter(_still_valid(), service_id=service_id).update(
         revoked_at=timezone.now()
     )

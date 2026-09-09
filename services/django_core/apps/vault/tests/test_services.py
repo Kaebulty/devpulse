@@ -224,3 +224,24 @@ def test_revoke_still_kills_instantly(issued):
     """
     revoke_key(1)
     assert verify_token(issued) is False
+
+
+@pytest.mark.django_db
+def test_revoke_during_the_grace_window_kills_the_retiring_key_too(issued, admin_user):
+    """Revoke must clear *every* currently-valid key, not just the newest.
+
+    After a rotation the retiring key has a future `revoked_at` and still verifies.
+    Filtering on `revoked_at IS NULL` alone left it alive, so revoking a
+    just-rotated service didn't actually stop its credentials working — which is
+    the one thing revoke exists to do. Caught in review by Kaebulty; the original
+    test above missed it because it only revoked a service that had never rotated.
+    """
+    with patch.object(RegistryClient, "update_service_token"):
+        new = rotate_key(1, created_by=admin_user)
+
+    assert verify_token(issued) and verify_token(new), "both live mid-grace"
+
+    revoke_key(1)
+
+    assert verify_token(new) is False
+    assert verify_token(issued) is False, "the retiring key must die as well"
