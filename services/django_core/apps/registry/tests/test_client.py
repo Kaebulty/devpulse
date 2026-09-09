@@ -233,3 +233,38 @@ def test_reuses_one_http_client_across_instances_and_calls():
     RegistryClient(base_url=BASE_URL).list_services()
 
     assert client_module._shared_client is client_before
+
+
+@respx.mock
+def test_update_service_token_sends_only_the_token(settings):
+    """Must not send simulation_url: PATCH leaves omitted fields alone, so a
+    rotation cannot disturb an active Chaos Controls simulation."""
+    settings.FASTAPI_REGISTRY_URL = BASE_URL
+    route = respx.patch(f"{BASE_URL}/api/v1/services/7").mock(
+        return_value=httpx.Response(200, json=_service_payload(id=7))
+    )
+
+    RegistryClient().update_service_token(7, "rotated-token")
+
+    body = json.loads(route.calls.last.request.content)
+    assert body == {"auth_token": "rotated-token"}
+
+
+@respx.mock
+def test_update_service_token_raises_when_the_service_is_gone(settings):
+    settings.FASTAPI_REGISTRY_URL = BASE_URL
+    respx.patch(f"{BASE_URL}/api/v1/services/404").mock(return_value=httpx.Response(404))
+
+    with pytest.raises(ServiceNotFound):
+        RegistryClient().update_service_token(404, "x")
+
+
+@respx.mock
+def test_update_service_token_translates_transport_errors(settings):
+    settings.FASTAPI_REGISTRY_URL = BASE_URL
+    respx.patch(f"{BASE_URL}/api/v1/services/7").mock(
+        side_effect=httpx.ReadError("peer closed")
+    )
+
+    with pytest.raises(RegistryUnavailable):
+        RegistryClient().update_service_token(7, "x")

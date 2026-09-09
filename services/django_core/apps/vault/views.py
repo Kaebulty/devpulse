@@ -6,7 +6,7 @@ from apps.accounts.models import User
 from apps.accounts.rbac import RoleRequiredMixin
 from apps.registry.client import Environment
 
-from .services import create_service_with_key, revoke_key, verify_token
+from .services import create_service_with_key, revoke_key, rotate_key, verify_token
 
 
 class VaultVerifyView(APIView):
@@ -61,6 +61,26 @@ class CreateServiceKeyView(RoleRequiredMixin, APIView):
             },
             status=201,
         )
+
+
+class RotateServiceKeyView(RoleRequiredMixin, APIView):
+    """Issue a service a new key, retiring the old one after a grace window.
+
+    Returns the new raw token once — it is not stored and cannot be fetched again.
+    The retired key keeps verifying briefly, so the service does not fail a health
+    check between rotation and FastAPI picking up the new token.
+    """
+
+    allowed_roles = (User.Role.ADMIN,)
+
+    def post(self, request, service_id):
+        try:
+            raw_token = rotate_key(service_id, created_by=request.user)
+        except ValueError as exc:
+            # No current key: rotating something never issued one is a caller
+            # mistake, not a server fault.
+            return Response({"detail": str(exc)}, status=400)
+        return Response({"token": raw_token}, status=200)
 
 
 class RevokeServiceKeyView(RoleRequiredMixin, APIView):

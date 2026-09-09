@@ -132,6 +132,22 @@ class RegistryClient:
             raise DuplicateServiceName(f"a service named {request.name!r} is already registered")
         return Service.from_api(response.json())
 
+    def update_service_token(self, service_id: int, auth_token: str) -> Service:
+        """Push a rotated token to an already-registered service.
+
+        Sends only `auth_token`: the registry's PATCH leaves omitted fields alone, so
+        this cannot disturb an active Chaos Controls simulation on the same service.
+        """
+        response = self._send(
+            "PATCH",
+            f"/api/v1/services/{service_id}",
+            json={"auth_token": auth_token},
+            expected={200, 404},
+        )
+        if response.status_code == 404:
+            raise ServiceNotFound(f"no service with id {service_id}")
+        return Service.from_api(response.json())
+
     def delete_service(self, service_id: int) -> None:
         response = self._send("DELETE", f"/api/v1/services/{service_id}", expected={204, 404})
         if response.status_code == 404:

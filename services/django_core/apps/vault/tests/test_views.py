@@ -1,8 +1,15 @@
+import secrets
+from unittest.mock import patch
+
 import httpx
 import pytest
 import respx
 from django.contrib.auth import get_user_model
+from django.contrib.auth.hashers import make_password
 from django.test import Client
+
+from apps.registry.client import RegistryClient
+from apps.vault.models import ApiKey
 
 pytestmark = pytest.mark.django_db
 
@@ -126,3 +133,44 @@ def test_revoke_rejects_developer(dev_client):
     response = dev_client.post(_revoke_url(1), content_type="application/json")
 
     assert response.status_code == 403
+
+
+# --- rotation view ---------------------------------------------------------------
+
+
+def _rotate_url(service_id: int) -> str:
+    return f"/api/v1/vault/services/{service_id}/rotate/"
+
+
+def _issue_key(user) -> str:
+    raw = secrets.token_urlsafe(32)
+    ApiKey.objects.create(service_id=1, key_hash=make_password(raw), created_by=user)
+    return raw
+
+
+def test_admin_can_rotate_and_gets_the_new_token_once(admin_client):
+    _issue_key(User.objects.get(username="admin"))
+
+    with patch.object(RegistryClient, "update_service_token"):
+        response = admin_client.post(_rotate_url(1))
+
+    assert response.status_code == 200
+    assert response.json()["token"]
+
+
+def test_developer_cannot_rotate(dev_client):
+    _issue_key(User.objects.create_user(username="issuer", password="pw"))
+
+    response = dev_client.post(_rotate_url(1))
+
+    assert response.status_code == 403
+
+
+def test_anonymous_cannot_rotate(client):
+    response = client.post(_rotate_url(1))
+    assert response.status_code == 403
+
+
+def test_rotating_a_service_without_a_key_is_a_bad_request(admin_client):
+    response = admin_client.post(_rotate_url(999))
+    assert response.status_code == 400
