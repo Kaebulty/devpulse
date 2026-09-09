@@ -13,6 +13,7 @@ from apps.registry.client import (
     RegistryClientError,
     RegistryUnavailable,
     Service,
+    ServiceCreateRequest,
     ServiceNotFound,
     ServiceStatus,
 )
@@ -37,6 +38,17 @@ def _service_payload(**overrides):
     }
     payload.update(overrides)
     return payload
+
+
+def _create_request(**overrides):
+    fields = {
+        "name": "payments-api",
+        "environment": Environment.PRODUCTION,
+        "health_check_url": "http://localhost:8001/mock/health",
+        "auth_token": "raw-token",
+    }
+    fields.update(overrides)
+    return ServiceCreateRequest(**fields)
 
 
 @respx.mock
@@ -84,12 +96,7 @@ def test_create_service_returns_dto(client):
         )
     )
 
-    service = client.create_service(
-        name="payments-api",
-        environment=Environment.PRODUCTION,
-        health_check_url="http://localhost:8001/mock/health",
-        auth_token="raw-token",
-    )
+    service = client.create_service(_create_request())
 
     assert service.name == "payments-api"
     assert service.status == ServiceStatus.UNKNOWN
@@ -101,12 +108,7 @@ def test_create_service_sends_auth_token(client):
         return_value=httpx.Response(201, json=_service_payload())
     )
 
-    client.create_service(
-        name="payments-api",
-        environment=Environment.PRODUCTION,
-        health_check_url="http://localhost:8001/mock/health",
-        auth_token="raw-token",
-    )
+    client.create_service(_create_request())
 
     assert json.loads(route.calls.last.request.content)["auth_token"] == "raw-token"
 
@@ -118,12 +120,7 @@ def test_create_service_sends_internal_secret_header(client, settings):
         return_value=httpx.Response(201, json=_service_payload())
     )
 
-    client.create_service(
-        name="payments-api",
-        environment=Environment.PRODUCTION,
-        health_check_url="http://localhost:8001/mock/health",
-        auth_token="raw-token",
-    )
+    client.create_service(_create_request())
 
     assert route.calls.last.request.headers["X-Internal-Secret"] == "the-shared-secret"
 
@@ -133,12 +130,7 @@ def test_create_service_duplicate_name_raises(client):
     respx.post(f"{BASE_URL}/api/v1/services").mock(return_value=httpx.Response(409))
 
     with pytest.raises(DuplicateServiceName):
-        client.create_service(
-            name="payments-api",
-            environment=Environment.PRODUCTION,
-            health_check_url="http://localhost:8001/mock/health",
-            auth_token="raw-token",
-        )
+        client.create_service(_create_request())
 
 
 @respx.mock
@@ -212,3 +204,32 @@ def test_client_defaults_base_url_to_settings(settings):
     settings.FASTAPI_REGISTRY_URL = "http://from-settings:8001"
     client = RegistryClient()
     assert client._base_url == "http://from-settings:8001"
+
+
+def test_create_request_to_payload_serializes_environment():
+    request = _create_request(environment=Environment.STAGING)
+
+    assert request.to_payload() == {
+        "name": "payments-api",
+        "environment": "staging",
+        "health_check_url": "http://localhost:8001/mock/health",
+        "auth_token": "raw-token",
+    }
+
+
+@respx.mock
+def test_reuses_one_http_client_across_instances_and_calls():
+    """Regression: _send() used to open+close a fresh httpx.Client per call, so
+    concurrent RegistryClient() instances (e.g. two dashboard polls) never shared
+    a connection pool. Import the module attribute directly rather than going
+    through the public API, since "no new client got created" has no other
+    externally-observable effect."""
+    import apps.registry.client as client_module
+
+    respx.get(f"{BASE_URL}/api/v1/services").mock(return_value=httpx.Response(200, json=[]))
+
+    client_before = client_module._shared_client
+    RegistryClient(base_url=BASE_URL).list_services()
+    RegistryClient(base_url=BASE_URL).list_services()
+
+    assert client_module._shared_client is client_before
