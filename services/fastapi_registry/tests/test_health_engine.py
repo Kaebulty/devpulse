@@ -163,3 +163,60 @@ async def test_one_failing_service_does_not_stop_the_others(session: AsyncSessio
 
 async def test_empty_registry_is_a_no_op(session: AsyncSession) -> None:
     assert await run_health_checks(session) == []
+
+
+# --- simulation override ---------------------------------------------------------
+
+
+@respx.mock
+async def test_health_check_uses_simulation_url_when_set() -> None:
+    """Chaos Controls redirects the probe without faking the result.
+
+    The mock target is what returns 503 — the engine genuinely measures a failure
+    rather than being told to record one, so the whole ping path is exercised.
+    """
+    real = respx.get("http://svc/health").mock(return_value=httpx.Response(200))
+    mock = respx.get("http://svc/mock/health").mock(return_value=httpx.Response(503))
+    service = ServiceModel(
+        id=1, name="svc", environment="development",
+        health_check_url="http://svc/health",
+        simulation_url="http://svc/mock/health",
+    )
+
+    async with httpx.AsyncClient() as client:
+        result = await check_service(client, service)
+
+    assert mock.called
+    assert not real.called
+    assert result.status is ServiceStatus.UNHEALTHY
+
+
+@respx.mock
+async def test_health_check_uses_real_url_when_simulation_is_cleared() -> None:
+    real = respx.get("http://svc/health").mock(return_value=httpx.Response(200))
+    service = ServiceModel(
+        id=1, name="svc", environment="development",
+        health_check_url="http://svc/health", simulation_url=None,
+    )
+
+    async with httpx.AsyncClient() as client:
+        result = await check_service(client, service)
+
+    assert real.called
+    assert result.status is ServiceStatus.HEALTHY
+
+
+@respx.mock
+async def test_simulated_ping_still_carries_the_bearer_token() -> None:
+    """A simulated target is still an authenticated one — the vault loop must hold."""
+    route = respx.get("http://svc/mock/health").mock(return_value=httpx.Response(200))
+    service = ServiceModel(
+        id=1, name="svc", environment="development",
+        health_check_url="http://svc/health",
+        simulation_url="http://svc/mock/health", auth_token="s3cr3t",
+    )
+
+    async with httpx.AsyncClient() as client:
+        await check_service(client, service)
+
+    assert route.calls.last.request.headers["Authorization"] == "Bearer s3cr3t"

@@ -72,7 +72,11 @@ async def check_service(client: httpx.AsyncClient, service: ServiceModel) -> Che
     started = time.perf_counter()
     status_code: int | None = None
     try:
-        response = await client.get(service.health_check_url, headers=headers)
+        # Chaos Controls redirects the probe to a mock target. The request itself
+        # is unchanged, so latency and status remain genuinely measured — only the
+        # destination is simulated.
+        target_url = service.simulation_url or service.health_check_url
+        response = await client.get(target_url, headers=headers)
         status_code = response.status_code
     except httpx.HTTPError as exc:
         logger.warning("health check failed for %s: %s", service.name, exc)

@@ -43,6 +43,21 @@ class ServiceCreate(BaseModel):
     auth_token: str | None = None
 
 
+class ServiceUpdate(BaseModel):
+    """Partial update of a registered service.
+
+    Every field is optional, and absent is not the same as null: a field omitted
+    from the request body is left untouched, while an explicit null clears it.
+    Callers rely on `model_dump(exclude_unset=True)` to tell the two apart — which
+    is the whole reason this is a PATCH rather than a PUT.
+    """
+
+    # Rotated by the vault. Write-only, exactly as on ServiceCreate.
+    auth_token: str | None = None
+    # Set to a mock target by Chaos Controls; null clears the simulation.
+    simulation_url: HttpUrl | None = None
+
+
 class ServiceRead(BaseModel):
     """A registered service as returned by the API."""
 
@@ -59,3 +74,7 @@ class ServiceRead(BaseModel):
     # to cross the API boundary — the gateway has no other route to them.
     latency_ms: int | None = None
     last_checked_at: datetime | None = None
+
+    # Exposed so the dashboard can mark a service as currently simulated.
+    # auth_token deliberately is not — that stays write-only.
+    simulation_url: str | None = None
