@@ -1,4 +1,43 @@
-.PHONY: dev-db dev dev-django dev-fastapi migrate lint test clean
+.PHONY: dev-db dev dev-django dev-fastapi tailwind-build tailwind-watch migrate lint test clean
+
+# Standalone Tailwind CLI (github.com/tailwindlabs/tailwindcss/releases) — no Node/npm
+# needed, matching the rest of this repo's uv-only, single-toolchain philosophy.
+# Pinned by exact version + checksum, since this downloads and executes a binary.
+TAILWIND_VERSION := v4.3.3
+TAILWIND_BIN := $(CURDIR)/.bin/tailwindcss
+TAILWIND_RELEASE_URL := https://github.com/tailwindlabs/tailwindcss/releases/download/$(TAILWIND_VERSION)
+TAILWIND_INPUT := tailwind/input.css
+TAILWIND_OUTPUT := apps/dashboard/static/dashboard/css/output.css
+
+$(TAILWIND_BIN):
+	@mkdir -p $(CURDIR)/.bin
+	@os=$$(uname -s); arch=$$(uname -m); \
+	case "$$os-$$arch" in \
+		Linux-x86_64) asset=tailwindcss-linux-x64 ;; \
+		Linux-aarch64|Linux-arm64) asset=tailwindcss-linux-arm64 ;; \
+		Darwin-x86_64) asset=tailwindcss-macos-x64 ;; \
+		Darwin-arm64) asset=tailwindcss-macos-arm64 ;; \
+		*) echo "Unsupported platform for the Tailwind CLI: $$os-$$arch" >&2; exit 1 ;; \
+	esac; \
+	echo "Downloading tailwindcss $(TAILWIND_VERSION) ($$asset)..."; \
+	curl -fsSL -o $(TAILWIND_BIN) "$(TAILWIND_RELEASE_URL)/$$asset"; \
+	curl -fsSL -o $(CURDIR)/.bin/sha256sums.txt "$(TAILWIND_RELEASE_URL)/sha256sums.txt"; \
+	expected=$$(grep "$$asset$$" $(CURDIR)/.bin/sha256sums.txt | awk '{print $$1}'); \
+	actual=$$(sha256sum $(TAILWIND_BIN) | awk '{print $$1}'); \
+	if [ -z "$$expected" ] || [ "$$expected" != "$$actual" ]; then \
+		echo "Checksum mismatch for $$asset — aborting." >&2; \
+		rm -f $(TAILWIND_BIN); \
+		exit 1; \
+	fi; \
+	chmod +x $(TAILWIND_BIN)
+
+# One-shot minified build — what the Docker image also runs.
+tailwind-build: $(TAILWIND_BIN)
+	cd services/django_core && $(TAILWIND_BIN) -i $(TAILWIND_INPUT) -o $(TAILWIND_OUTPUT) --minify
+
+# Rebuilds on template/CSS changes — the third parallel process in `make dev`.
+tailwind-watch: $(TAILWIND_BIN)
+	cd services/django_core && $(TAILWIND_BIN) -i $(TAILWIND_INPUT) -o $(TAILWIND_OUTPUT) --watch
 
 # Start Postgres (both core_db and services_db) in Docker. Run this first.
 #
@@ -23,11 +62,13 @@ dev-db:
 		docker compose up db -d --wait; \
 	fi
 
-# Run both services natively via uv, in parallel. Ctrl-C stops both.
-dev:
+# Run both services plus the Tailwind watcher natively via uv, in parallel. Ctrl-C
+# stops all three.
+dev: $(TAILWIND_BIN)
 	@trap 'kill 0' EXIT; \
 	$(MAKE) dev-django & \
 	$(MAKE) dev-fastapi & \
+	$(MAKE) tailwind-watch & \
 	wait
 
 dev-django:

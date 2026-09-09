@@ -76,6 +76,10 @@ INTERNAL_SECRET_TOKEN = os.environ.get(
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # Only needed in production: dev/tests never run collectstatic, so STATIC_ROOT
+    # doesn't exist yet and runserver's own staticfiles handling serves the app
+    # anyway. Without this guard, whitenoise warns on every request in dev.
+    *([] if DEBUG else ['whitenoise.middleware.WhiteNoiseMiddleware']),
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -159,6 +163,30 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
 
 STATIC_URL = 'static/'
+
+# Gunicorn is WSGI-only with no separate web server in front of it (see the
+# Dockerfile), so something has to serve static files in production. Whitenoise
+# does that from within the Django process itself — no nginx/CDN needed for the
+# small amount of static content this app has (the compiled Tailwind CSS).
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+STORAGES = {
+    'default': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+    },
+    'staticfiles': {
+        # The manifest storage requires collectstatic to have already run — its
+        # {% static %} lookups go through staticfiles.json, not the filesystem. Dev
+        # and tests never run collectstatic, so they'd get a hard ValueError on every
+        # {% static %} tag if this applied unconditionally. Only production, where the
+        # Docker build runs collectstatic (see the Dockerfile), needs the manifest
+        # variant; dev keeps runserver's own unmanifested staticfiles handling.
+        'BACKEND': (
+            'django.contrib.staticfiles.storage.StaticFilesStorage'
+            if DEBUG
+            else 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+        ),
+    },
+}
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
