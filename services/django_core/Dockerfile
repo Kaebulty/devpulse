@@ -32,13 +32,28 @@ COPY services/django_core/ ./services/django_core/
 # Compile Tailwind CSS with the same pinned, checksum-verified standalone CLI make
 # uses locally — no Node/npm in the image. Verified against sha256sums.txt from the
 # same GitHub release, same as the Makefile's local download.
+#
+# Two things this image's base doesn't give us, that the Makefile's host download
+# didn't need to worry about: no curl/wget in this slim image (Python is already
+# guaranteed present, so urllib does the fetch instead), and a build running on an
+# arm64 host (e.g. Apple Silicon) needs the arm64 asset — TARGETARCH is set
+# automatically by BuildKit and was previously ignored, so every build silently
+# fetched the x64 binary regardless of the actual target platform. CI never caught
+# this because GitHub's hosted runners are x64, where the hardcoded value happened
+# to be correct by coincidence.
 ARG TAILWIND_VERSION=v4.3.3
+ARG TARGETARCH
 RUN set -eu; \
-    curl -fsSL -o /tmp/tailwindcss \
-      "https://github.com/tailwindlabs/tailwindcss/releases/download/${TAILWIND_VERSION}/tailwindcss-linux-x64"; \
-    curl -fsSL -o /tmp/sha256sums.txt \
-      "https://github.com/tailwindlabs/tailwindcss/releases/download/${TAILWIND_VERSION}/sha256sums.txt"; \
-    expected="$(grep 'tailwindcss-linux-x64$' /tmp/sha256sums.txt | awk '{print $1}')"; \
+    case "${TARGETARCH}" in \
+      amd64) asset=tailwindcss-linux-x64 ;; \
+      arm64) asset=tailwindcss-linux-arm64 ;; \
+      *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    URL="https://github.com/tailwindlabs/tailwindcss/releases/download/${TAILWIND_VERSION}/${asset}" \
+      python3 -c "import os, urllib.request; urllib.request.urlretrieve(os.environ['URL'], '/tmp/tailwindcss')"; \
+    URL="https://github.com/tailwindlabs/tailwindcss/releases/download/${TAILWIND_VERSION}/sha256sums.txt" \
+      python3 -c "import os, urllib.request; urllib.request.urlretrieve(os.environ['URL'], '/tmp/sha256sums.txt')"; \
+    expected="$(grep "${asset}\$" /tmp/sha256sums.txt | awk '{print $1}')"; \
     actual="$(sha256sum /tmp/tailwindcss | awk '{print $1}')"; \
     [ -n "$expected" ] && [ "$expected" = "$actual" ]; \
     chmod +x /tmp/tailwindcss
