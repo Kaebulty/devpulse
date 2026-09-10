@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     'apps.registry',
     'apps.vault',
     'apps.dashboard',
+    'apps.audit',
 ]
 
 AUTH_USER_MODEL = 'accounts.User'

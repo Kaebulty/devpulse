@@ -89,5 +89,5 @@ class RevokeServiceKeyView(RoleRequiredMixin, APIView):
     allowed_roles = (User.Role.ADMIN,)
 
     def post(self, request, service_id):
-        revoke_key(service_id)
+        revoke_key(service_id, actor=request.user)
         return Response(status=204)

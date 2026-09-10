@@ -104,7 +104,7 @@ def test_verify_token_false_for_garbage():
 
 def test_verify_token_false_after_revoke(admin_user):
     _, raw_token = _create_key(admin_user, service_id=2)
-    revoke_key(service_id=2)
+    revoke_key(service_id=2, actor=admin_user)
 
     assert verify_token(raw_token) is False
 
@@ -112,7 +112,7 @@ def test_verify_token_false_after_revoke(admin_user):
 def test_revoke_key_sets_revoked_at(admin_user):
     key, _ = _create_key(admin_user, service_id=3)
 
-    revoke_key(service_id=3)
+    revoke_key(service_id=3, actor=admin_user)
 
     key.refresh_from_db()
     assert key.revoked_at is not None
@@ -216,13 +216,13 @@ def test_rotating_a_service_with_no_key_raises(admin_user):
 
 
 @pytest.mark.django_db
-def test_revoke_still_kills_instantly(issued):
+def test_revoke_still_kills_instantly(issued, admin_user):
     """Regression on the revoked_at semantics change.
 
     revoked_at now means "stops working at", so revocation sets it to now — a key
     revoked this instant must not benefit from any grace.
     """
-    revoke_key(1)
+    revoke_key(1, actor=admin_user)
     assert verify_token(issued) is False
 
 
@@ -241,7 +241,7 @@ def test_revoke_during_the_grace_window_kills_the_retiring_key_too(issued, admin
 
     assert verify_token(issued) and verify_token(new), "both live mid-grace"
 
-    revoke_key(1)
+    revoke_key(1, actor=admin_user)
 
     assert verify_token(new) is False
     assert verify_token(issued) is False, "the retiring key must die as well"
