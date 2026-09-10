@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 import respx
@@ -149,3 +151,148 @@ def test_admin_role_badge_renders(client, user):
     response = client.get(reverse("dashboard-index"))
 
     assert b"Admin" in response.content
+
+
+@respx.mock
+def test_admin_sees_simulation_dropdown(client, user):
+    user.role = User.Role.ADMIN
+    user.save()
+    respx.get(f"{BASE_URL}/api/v1/services").mock(
+        return_value=httpx.Response(200, json=[_service_payload()])
+    )
+    client.force_login(user)
+
+    response = client.get(reverse("dashboard-index"))
+
+    assert b'name="simulation_preset"' in response.content
+
+
+@respx.mock
+def test_developer_does_not_see_simulation_dropdown(client, user):
+    """RBAC + Chaos Controls: the dropdown is admin-only. Developers get only the
+    read-only status/latency badge, enforced here in the template render, not just
+    hidden by CSS."""
+    respx.get(f"{BASE_URL}/api/v1/services").mock(
+        return_value=httpx.Response(200, json=[_service_payload()])
+    )
+    client.force_login(user)
+
+    response = client.get(reverse("dashboard-index"))
+
+    assert b'name="simulation_preset"' not in response.content
+
+
+@respx.mock
+def test_active_simulation_shows_badge_for_every_role(client, user):
+    """mrustamov04's design explicitly calls for the UI to show simulated state
+    rather than let it silently expire — visible to developers too, not just admins."""
+    respx.get(f"{BASE_URL}/api/v1/services").mock(
+        return_value=httpx.Response(
+            200, json=[_service_payload(simulation_url=f"{BASE_URL}/mock/health?status=503")]
+        )
+    )
+    client.force_login(user)
+
+    response = client.get(reverse("dashboard-index"))
+
+    assert b"Simulated" in response.content
+
+
+def test_set_simulation_rejects_anonymous(client):
+    """admin_required 403s anonymous the same as wrong-role, matching apps.vault's
+    RoleRequiredMixin convention — no login redirect."""
+    response = client.post(reverse("dashboard-set-simulation", args=[1]))
+    assert response.status_code == 403
+
+
+def test_set_simulation_requires_admin(client, user):
+    """Enforced at the endpoint too, not just hidden in the template — a developer
+    posting directly must still be rejected."""
+    client.force_login(user)
+
+    response = client.post(
+        reverse("dashboard-set-simulation", args=[1]), {"simulation_preset": "unhealthy"}
+    )
+
+    assert response.status_code == 403
+
+
+@respx.mock
+def test_set_simulation_applies_preset_and_returns_the_row(client, user):
+    user.role = User.Role.ADMIN
+    user.save()
+    respx.patch(f"{BASE_URL}/api/v1/services/1").mock(
+        return_value=httpx.Response(
+            200, json=_service_payload(simulation_url=f"{BASE_URL}/mock/health?status=503")
+        )
+    )
+    client.force_login(user)
+
+    response = client.post(
+        reverse("dashboard-set-simulation", args=[1]), {"simulation_preset": "unhealthy"}
+    )
+
+    assert response.status_code == 200
+    assert b"Simulated" in response.content
+    body = json.loads(respx.calls.last.request.content)
+    assert body == {"simulation_url": f"{BASE_URL}/mock/health?status=503"}
+
+
+@respx.mock
+def test_set_simulation_clear_sends_explicit_null(client, user):
+    user.role = User.Role.ADMIN
+    user.save()
+    route = respx.patch(f"{BASE_URL}/api/v1/services/1").mock(
+        return_value=httpx.Response(200, json=_service_payload(simulation_url=None))
+    )
+    client.force_login(user)
+
+    response = client.post(
+        reverse("dashboard-set-simulation", args=[1]), {"simulation_preset": "clear"}
+    )
+
+    assert response.status_code == 200
+    assert b"Simulated" not in response.content
+    assert json.loads(route.calls.last.request.content) == {"simulation_url": None}
+
+
+def test_set_simulation_rejects_unknown_preset(client, user):
+    user.role = User.Role.ADMIN
+    user.save()
+    client.force_login(user)
+
+    response = client.post(
+        reverse("dashboard-set-simulation", args=[1]), {"simulation_preset": "on-fire"}
+    )
+
+    assert response.status_code == 400
+
+
+@respx.mock
+def test_set_simulation_missing_service_returns_bad_request(client, user):
+    user.role = User.Role.ADMIN
+    user.save()
+    respx.patch(f"{BASE_URL}/api/v1/services/999").mock(return_value=httpx.Response(404))
+    client.force_login(user)
+
+    response = client.post(
+        reverse("dashboard-set-simulation", args=[999]), {"simulation_preset": "healthy"}
+    )
+
+    assert response.status_code == 400
+
+
+@respx.mock
+def test_set_simulation_registry_unreachable_renders_inline_error(client, user):
+    """Same 'expected condition, not a 500' treatment as the list view."""
+    user.role = User.Role.ADMIN
+    user.save()
+    respx.patch(f"{BASE_URL}/api/v1/services/1").mock(side_effect=httpx.ConnectError("refused"))
+    client.force_login(user)
+
+    response = client.post(
+        reverse("dashboard-set-simulation", args=[1]), {"simulation_preset": "healthy"}
+    )
+
+    assert response.status_code == 200
+    assert b"try again" in response.content

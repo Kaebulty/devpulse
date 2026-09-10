@@ -1,0 +1,46 @@
+{% if service %}
+  <div id="service-row-{{ service.id }}" class="flex items-center justify-between px-5 py-4">
+    <div>
+      <div class="font-medium">{{ service.name }}</div>
+      <div class="text-xs text-slate-400">{{ service.environment }} · {{ service.health_check_url }}</div>
+      <div class="mt-0.5 text-xs text-slate-400">
+        {% if service.last_checked_at %}last checked {{ service.last_checked_at|timesince }} ago{% else %}never checked yet{% endif %}
+      </div>
+    </div>
+    <div class="flex items-center gap-4">
+      {% if service.simulation_url %}
+        <span class="rounded-full bg-purple-100 px-2.5 py-1 text-xs font-medium text-purple-700">Simulated</span>
+      {% endif %}
+      {% if service.latency_ms is not None %}
+        <span class="text-xs text-slate-500" style="font-variant-numeric: tabular-nums;">{{ service.latency_ms }} ms</span>
+      {% endif %}
+      <span class="rounded-full px-2.5 py-1 text-xs font-medium
+        {% if service.status == "HEALTHY" %}bg-emerald-100 text-emerald-700
+        {% elif service.status == "DEGRADED" %}bg-amber-100 text-amber-700
+        {% elif service.status == "UNHEALTHY" %}bg-rose-100 text-rose-700
+        {% else %}bg-slate-100 text-slate-500{% endif %}">
+        {{ service.status }}
+      </span>
+      {% if user.is_admin %}
+        <form hx-post="{% url 'dashboard-set-simulation' service.id %}"
+              hx-target="#service-row-{{ service.id }}"
+              hx-swap="outerHTML">
+          {% csrf_token %}
+          <select name="simulation_preset" onchange="this.form.requestSubmit()"
+                  class="rounded border border-slate-200 bg-white px-2 py-1 text-xs">
+            <option value="clear" {% if service.simulation_url == chaos_presets.clear %}selected{% endif %}>No simulation</option>
+            <option value="healthy" {% if service.simulation_url == chaos_presets.healthy %}selected{% endif %}>Force healthy</option>
+            <option value="degraded" {% if service.simulation_url == chaos_presets.degraded %}selected{% endif %}>Force degraded</option>
+            <option value="unhealthy" {% if service.simulation_url == chaos_presets.unhealthy %}selected{% endif %}>Force unhealthy</option>
+          </select>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+{% else %}
+  <div id="service-row-{{ service_id }}" class="flex items-center justify-between px-5 py-4">
+    <span class="text-sm text-rose-600">
+      {% if simulation_error %}Couldn't reach the registry — try again.{% endif %}
+    </span>
+  </div>
+{% endif %}
