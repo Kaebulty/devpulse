@@ -42,6 +42,9 @@ class Service:
     status: ServiceStatus
     latency_ms: int | None
     last_checked_at: datetime | None
+    # Set by Chaos Controls to a mock target; null means no simulation is active.
+    # Read-only here, same as on FastAPI's ServiceRead — auth_token stays write-only.
+    simulation_url: str | None = None
 
     @classmethod
     def from_api(cls, data: dict) -> Service:
@@ -54,6 +57,7 @@ class Service:
             status=ServiceStatus(data["status"]),
             latency_ms=data.get("latency_ms"),
             last_checked_at=datetime.fromisoformat(last_checked_at) if last_checked_at else None,
+            simulation_url=data.get("simulation_url"),
         )
 
 
@@ -142,6 +146,23 @@ class RegistryClient:
             "PATCH",
             f"/api/v1/services/{service_id}",
             json={"auth_token": auth_token},
+            expected={200, 404},
+        )
+        if response.status_code == 404:
+            raise ServiceNotFound(f"no service with id {service_id}")
+        return Service.from_api(response.json())
+
+    def set_simulation(self, service_id: int, simulation_url: str | None) -> Service:
+        """Set or clear a Chaos Controls simulation target on an existing service.
+
+        Always sends the `simulation_url` key explicitly, including when clearing:
+        an explicit null clears it, while omitting the key (as `update_service_token`
+        does) would leave whatever simulation is active untouched.
+        """
+        response = self._send(
+            "PATCH",
+            f"/api/v1/services/{service_id}",
+            json={"simulation_url": simulation_url},
             expected={200, 404},
         )
         if response.status_code == 404:

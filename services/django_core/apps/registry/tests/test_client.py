@@ -268,3 +268,53 @@ def test_update_service_token_translates_transport_errors(settings):
 
     with pytest.raises(RegistryUnavailable):
         RegistryClient().update_service_token(7, "x")
+
+
+@respx.mock
+def test_set_simulation_sends_the_url(settings):
+    settings.FASTAPI_REGISTRY_URL = BASE_URL
+    route = respx.patch(f"{BASE_URL}/api/v1/services/7").mock(
+        return_value=httpx.Response(
+            200, json=_service_payload(id=7, simulation_url="http://x/mock/health")
+        )
+    )
+
+    service = RegistryClient().set_simulation(7, "http://x/mock/health")
+
+    body = json.loads(route.calls.last.request.content)
+    assert body == {"simulation_url": "http://x/mock/health"}
+    assert service.simulation_url == "http://x/mock/health"
+
+
+@respx.mock
+def test_set_simulation_sends_explicit_null_to_clear(settings):
+    """An explicit null in the body is what clears it — omitting the key would
+    leave the active simulation untouched, per the registry's PATCH contract."""
+    settings.FASTAPI_REGISTRY_URL = BASE_URL
+    route = respx.patch(f"{BASE_URL}/api/v1/services/7").mock(
+        return_value=httpx.Response(200, json=_service_payload(id=7, simulation_url=None))
+    )
+
+    service = RegistryClient().set_simulation(7, None)
+
+    body = json.loads(route.calls.last.request.content)
+    assert body == {"simulation_url": None}
+    assert service.simulation_url is None
+
+
+@respx.mock
+def test_set_simulation_raises_when_the_service_is_gone(settings):
+    settings.FASTAPI_REGISTRY_URL = BASE_URL
+    respx.patch(f"{BASE_URL}/api/v1/services/404").mock(return_value=httpx.Response(404))
+
+    with pytest.raises(ServiceNotFound):
+        RegistryClient().set_simulation(404, "http://x/mock/health")
+
+
+@respx.mock
+def test_set_simulation_translates_transport_errors(settings):
+    settings.FASTAPI_REGISTRY_URL = BASE_URL
+    respx.patch(f"{BASE_URL}/api/v1/services/7").mock(side_effect=httpx.ReadError("peer closed"))
+
+    with pytest.raises(RegistryUnavailable):
+        RegistryClient().set_simulation(7, "http://x/mock/health")
