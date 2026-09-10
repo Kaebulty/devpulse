@@ -1,0 +1,49 @@
+{% extends "dashboard/base.html" %}
+
+{% block title %}DevPulse — Vault{% endblock %}
+
+{% block content %}
+  <div class="mb-6 flex items-center justify-between">
+    <h1 class="text-xl font-semibold">Service Vault</h1>
+  </div>
+
+  <div id="token-reveal" class="mb-6"></div>
+
+  <form hx-post="{% url 'vault-ui-create' %}" hx-target="#token-reveal" hx-swap="innerHTML"
+        class="mb-8 grid gap-3 rounded-lg border border-slate-200 bg-white p-5 sm:grid-cols-2">
+    {% csrf_token %}
+    <div class="sm:col-span-2">
+      <h2 class="text-sm font-medium text-slate-700">Register a new service</h2>
+    </div>
+    <label class="text-xs text-slate-500">
+      Name
+      <input type="text" name="name" required maxlength="100"
+             class="mt-1 block w-full rounded border border-slate-200 px-2 py-1 text-sm">
+    </label>
+    <label class="text-xs text-slate-500">
+      Environment
+      <select name="environment"
+              class="mt-1 block w-full rounded border border-slate-200 px-2 py-1 text-sm">
+        {% for env in environments %}
+          <option value="{{ env.value }}">{{ env.value|title }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="text-xs text-slate-500 sm:col-span-2">
+      Health check URL
+      <input type="url" name="health_check_url" required
+             placeholder="http://localhost:8001/mock/health"
+             class="mt-1 block w-full rounded border border-slate-200 px-2 py-1 text-sm">
+    </label>
+    <div class="sm:col-span-2">
+      <button type="submit"
+              class="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500">
+        Register
+      </button>
+    </div>
+  </form>
+
+  <div id="vault-service-list">
+    {% include "vault/_service_list.html" %}
+  </div>
+{% endblock %}

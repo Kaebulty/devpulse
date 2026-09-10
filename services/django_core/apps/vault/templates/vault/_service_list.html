@@ -1,0 +1,15 @@
+{% if registry_error %}
+  <div class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+    Registry is unreachable right now.
+  </div>
+{% elif not rows %}
+  <div class="rounded-lg border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-500">
+    No services registered yet.
+  </div>
+{% else %}
+  <div class="divide-y divide-slate-100 overflow-hidden rounded-lg border border-slate-200 bg-white">
+    {% for row in rows %}
+      {% include "vault/_service_row.html" %}
+    {% endfor %}
+  </div>
+{% endif %}
