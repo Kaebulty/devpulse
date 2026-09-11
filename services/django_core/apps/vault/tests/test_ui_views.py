@@ -146,6 +146,19 @@ def test_create_rejects_anonymous():
     assert response.status_code == 403
 
 
+def test_create_rejects_missing_csrf_token():
+    """The register-service form is real <form> + {% csrf_token %}, but every other
+    test here uses the default Client() (enforce_csrf_checks=False) so none of them
+    would notice if that protection broke. This proves it's actually enforced."""
+    User.objects.create_user(username="admin2", password="pw", role=User.Role.ADMIN)
+    client = Client(enforce_csrf_checks=True)
+    client.login(username="admin2", password="pw")
+
+    response = client.post(reverse("vault-ui-create"), {"name": "x"})
+
+    assert response.status_code == 403
+
+
 @respx.mock
 def test_create_service_issues_key_and_shows_token_once(admin_client, settings):
     settings.FASTAPI_REGISTRY_URL = BASE_URL

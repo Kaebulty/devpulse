@@ -84,6 +84,32 @@ INTERNAL_SECRET_TOKEN = os.environ.get(
     "INTERNAL_SECRET_TOKEN", "insecure-test-token-do-not-use-in-prod"
 )
 
+# --- Production hardening (security review, 2026-09) ---
+# Gated on DEBUG the same way WhiteNoiseMiddleware is below: dev/tests run with
+# DEBUG=True and are unaffected, only a real deployment (DJANGO_DEBUG=False) picks
+# these up. `manage.py check --deploy` flags all three when unset.
+#
+# SECURE_SSL_REDIRECT, SECURE_HSTS_INCLUDE_SUBDOMAINS, and SECURE_HSTS_PRELOAD are
+# deliberately NOT set here: this project's current Docker/Compose setup has no
+# documented TLS-terminating reverse proxy in front of Gunicorn (SSL_REDIRECT would
+# cause an infinite redirect loop without one), and the other two require certainty
+# that *every* subdomain is HTTPS-ready plus (for PRELOAD) accepting a browser-list
+# lock-in that's hard to reverse. All three are deployment-topology decisions for
+# the team, not something to guess at in code — see CLAUDE.md's Security Review
+# Pass notes.
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+SECURE_HSTS_SECONDS = 0 if DEBUG else 60 * 60 * 24 * 7  # 1 week; raise once proven safe
+
+# No view in this codebase currently relies on DRF's own default (AllowAny) — every
+# DRF view either sets its own permission_classes (VaultVerifyView) or gates itself
+# via RoleRequiredMixin.dispatch(), which runs before DRF's permission check ever
+# does. This changes nothing observable today; it only removes the silently-open
+# default for whatever DRF view gets added next and forgets to gate itself.
+REST_FRAMEWORK = {
+    "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
+}
+
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     # Only needed in production: dev/tests never run collectstatic, so STATIC_ROOT

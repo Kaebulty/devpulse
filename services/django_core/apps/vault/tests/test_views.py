@@ -135,6 +135,22 @@ def test_revoke_rejects_developer(dev_client):
     assert response.status_code == 403
 
 
+# --- CSRF enforcement --------------------------------------------------------------
+
+
+def test_create_service_rejects_missing_csrf_token(db):
+    """Every other test here uses Django's default Client(), which has
+    enforce_csrf_checks=False — none of them would notice a real CSRF hole. This
+    proves the protection is actually active, not just assumed."""
+    User.objects.create_user(username="admin2", password="pw", role=User.Role.ADMIN)
+    client = Client(enforce_csrf_checks=True)
+    client.login(username="admin2", password="pw")
+
+    response = client.post(CREATE_URL, data={}, content_type="application/json")
+
+    assert response.status_code == 403
+
+
 # --- rotation view ---------------------------------------------------------------
 
 

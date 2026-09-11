@@ -4,6 +4,7 @@ import httpx
 import pytest
 import respx
 from django.contrib.auth import get_user_model
+from django.test import Client
 from django.urls import reverse
 
 pytestmark = pytest.mark.django_db
@@ -202,6 +203,22 @@ def test_set_simulation_rejects_anonymous(client):
     """admin_required 403s anonymous the same as wrong-role, matching apps.vault's
     RoleRequiredMixin convention — no login redirect."""
     response = client.post(reverse("dashboard-set-simulation", args=[1]))
+    assert response.status_code == 403
+
+
+def test_set_simulation_rejects_missing_csrf_token(user):
+    """Every other test in this file uses pytest-django's client fixture, which has
+    enforce_csrf_checks=False by default — none of them would notice a real CSRF
+    hole on this state-changing endpoint. This proves it's actually enforced."""
+    user.role = User.Role.ADMIN
+    user.save()
+    strict_client = Client(enforce_csrf_checks=True)
+    strict_client.force_login(user)
+
+    response = strict_client.post(
+        reverse("dashboard-set-simulation", args=[1]), {"simulation_preset": "healthy"}
+    )
+
     assert response.status_code == 403
 
 
