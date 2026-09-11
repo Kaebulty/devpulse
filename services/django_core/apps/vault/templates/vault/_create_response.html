@@ -1,0 +1,14 @@
+{% if token %}
+  <div class="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+    <p class="font-medium">"{{ service.name }}" registered. Copy this key now — it will not be shown again:</p>
+    <input type="text" readonly value="{{ token }}" onclick="this.select()"
+           class="mt-2 w-full rounded border border-emerald-200 bg-white px-2 py-1 font-mono text-xs">
+  </div>
+{% elif error %}
+  <div class="rounded-lg border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+    {{ error }}
+  </div>
+{% endif %}
+<div id="vault-service-list" hx-swap-oob="true">
+  {% include "vault/_service_list.html" %}
+</div>
