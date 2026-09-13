@@ -32,6 +32,7 @@ dev = [
     "respx>=0.21",
     "aiosqlite>=0.22.1",
     "pytest-django>=4.9",
+    "pytest-cov>=7.1.0",
 ]
 
 [project.scripts]
@@ -63,3 +64,12 @@ asyncio_mode = "auto"
 testpaths = ["services"]
 DJANGO_SETTINGS_MODULE = "config.settings"
 pythonpath = ["services/django_core"]
+
+[tool.coverage.run]
+# SQLAlchemy's async engine bridges to the driver via greenlet_spawn internally
+# (even for asyncpg/aiosqlite), and coverage.py's default tracer loses track of
+# code that resumes after a greenlet switch. Without this, every fastapi_registry
+# route that awaits a session call shows its own return statement as "missed"
+# despite being fully exercised — see routers/services.py, which read as 60%
+# covered without this and 100% with it, for the exact same tests.
+concurrency = ["greenlet"]

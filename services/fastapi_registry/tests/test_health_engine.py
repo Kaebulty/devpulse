@@ -6,6 +6,7 @@ import respx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from services.fastapi_registry import health as health_module
 from services.fastapi_registry.health import check_service, evaluate_status, run_health_checks
 from services.fastapi_registry.models import ServiceModel
 from services.fastapi_registry.schemas import ServiceStatus
@@ -115,6 +116,25 @@ async def test_check_service_swallows_transport_errors() -> None:
     assert result.status is ServiceStatus.UNHEALTHY
 
 
+@respx.mock
+async def test_check_service_swallows_a_bare_timeout_error() -> None:
+    """The separate `except TimeoutError:` clause, distinct from httpx.HTTPError.
+
+    httpx's own timeout exceptions (e.g. httpx.ConnectTimeout) already subclass
+    httpx.HTTPError and are covered by test_check_service_swallows_transport_errors.
+    This proves the second clause — for a plain builtin TimeoutError that doesn't
+    come from httpx's own hierarchy — also results in a verdict, not a crash.
+    """
+    respx.get("http://svc/health").mock(side_effect=TimeoutError("deadline exceeded"))
+    service = ServiceModel(id=1, name="svc", environment="development",
+                           health_check_url="http://svc/health")
+
+    async with httpx.AsyncClient() as client:
+        result = await check_service(client, service)  # must not raise
+
+    assert result.status is ServiceStatus.UNHEALTHY
+
+
 # --- run_health_checks: full cycle, persistence -----------------------------------
 
 
@@ -163,6 +183,50 @@ async def test_one_failing_service_does_not_stop_the_others(session: AsyncSessio
 
 async def test_empty_registry_is_a_no_op(session: AsyncSession) -> None:
     assert await run_health_checks(session) == []
+
+
+@respx.mock
+async def test_an_unexpected_exception_from_one_check_does_not_stop_the_cycle(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The `isinstance(outcome, BaseException)` branch in run_health_checks.
+
+    check_service itself never raises (see the tests above), so the only way
+    asyncio.gather's return_exceptions=True can hand back an actual exception is a
+    genuine bug in the engine, not a network failure. Distinct from
+    test_one_failing_service_does_not_stop_the_others, which covers a *handled*
+    per-service failure (ConnectError -> UNHEALTHY) rather than one that escapes
+    check_service entirely.
+    """
+    real_check_service = health_module.check_service
+
+    async def flaky_check_service(client: httpx.AsyncClient, service: ServiceModel):
+        if service.name == "broken":
+            raise RuntimeError("boom")
+        return await real_check_service(client, service)
+
+    monkeypatch.setattr(health_module, "check_service", flaky_check_service)
+
+    respx.get("http://good/health").mock(return_value=httpx.Response(200))
+    session.add_all([
+        ServiceModel(name="good", environment="development", health_check_url="http://good/health"),
+        ServiceModel(name="broken", environment="development", health_check_url="http://broken/health"),
+    ])
+    await session.commit()
+
+    results = await run_health_checks(session)
+
+    # Only the healthy service produced a result; the broken one's exception was
+    # logged and skipped rather than losing the whole cycle.
+    assert len(results) == 1
+    assert results[0].status is ServiceStatus.HEALTHY
+
+    rows = (await session.execute(select(ServiceModel).order_by(ServiceModel.name))).scalars().all()
+    by_name = {r.name: r for r in rows}
+    assert by_name["good"].status == ServiceStatus.HEALTHY.value
+    # The broken service's row is untouched: no status/latency were ever written for it.
+    assert by_name["broken"].status == ServiceStatus.UNKNOWN.value
+    assert by_name["broken"].last_checked_at is None
 
 
 # --- simulation override ---------------------------------------------------------
