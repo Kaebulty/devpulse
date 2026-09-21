@@ -12,8 +12,16 @@
         {% if row.key_status == "active" %}Active{% elif row.key_status == "revoked" %}Revoked{% else %}No key{% endif %}
       </span>
       {% if row.key_status == "active" %}
-        <form>
+        <form class="flex items-center gap-2">
           {% csrf_token %}
+          <button type="button"
+                  hx-post="{% url 'vault-ui-rotate' row.service.id %}"
+                  hx-target="#token-reveal"
+                  hx-swap="innerHTML"
+                  hx-confirm="Rotate {{ row.service.name }}'s key? The old key keeps working during the grace window."
+                  class="rounded border border-indigo-200 px-2.5 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-50">
+            Rotate
+          </button>
           <button type="button"
                   hx-post="{% url 'vault-ui-revoke' row.service.id %}"
                   hx-target="#vault-row-{{ row.service.id }}"
