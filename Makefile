@@ -1,4 +1,4 @@
-.PHONY: dev-db dev dev-django dev-fastapi tailwind-build tailwind-watch migrate lint test clean
+.PHONY: dev-db dev dev-django dev-fastapi tailwind-build tailwind-watch migrate lint test seed clean
 
 # Standalone Tailwind CLI (github.com/tailwindlabs/tailwindcss/releases) — no Node/npm
 # needed, matching the rest of this repo's uv-only, single-toolchain philosophy.
@@ -90,6 +90,12 @@ lint:
 # `make test` fails on a clean checkout with a psycopg OperationalError.
 test: dev-db
 	uv run pytest services
+
+# Populate demo users + services so the dashboard isn't empty on first load. Run
+# after `make dev` (or at least `make dev-fastapi`) is already up — it registers
+# real services with the running FastAPI instance, it does not fake data.
+seed:
+	uv run python services/django_core/manage.py seed_demo_data
 
 clean:
 	docker compose down
