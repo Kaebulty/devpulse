@@ -18,7 +18,7 @@ from apps.registry.client import (
 )
 
 from .models import ApiKey
-from .services import create_service_with_key, revoke_key
+from .services import create_service_with_key, revoke_key, rotate_key
 
 
 @admin_required
@@ -70,6 +70,37 @@ def create_service(request):
     context = _vault_list_context()
     context.update({"token": token, "service": service, "error": error})
     return render(request, "vault/_create_response.html", context)
+
+
+@admin_required
+@require_POST
+def rotate_service(request, service_id):
+    """Rotate a service's key, returning the new raw token once.
+
+    The old key keeps verifying for the grace window (see `rotate_key`), so this
+    renders into the same `#token-reveal` slot as `create_service` rather than the
+    row itself — the row's own "Active" badge doesn't change, only the vault's
+    stored key does.
+    """
+    token = None
+    error = None
+    try:
+        token = rotate_key(service_id, created_by=request.user)
+    except ValueError:
+        # No active key to rotate: a caller mistake (e.g. already revoked), not a
+        # server fault — same "expected condition, not a 500" handling as create.
+        error = "This service has no active key to rotate."
+    except RegistryClientError:
+        error = "Couldn't reach the registry — try again."
+
+    rows = _vault_list_context()["rows"]
+    row = next((r for r in rows if r["service"].id == service_id), None)
+    service_name = row["service"].name if row else None
+    return render(
+        request,
+        "vault/_rotate_response.html",
+        {"token": token, "error": error, "service_name": service_name},
+    )
 
 
 @admin_required

@@ -38,6 +38,10 @@ def _revoke_url(service_id: int) -> str:
     return reverse("vault-ui-revoke", args=[service_id])
 
 
+def _rotate_url(service_id: int) -> str:
+    return reverse("vault-ui-rotate", args=[service_id])
+
+
 def _service_payload(**overrides):
     payload = {
         "id": 1,
@@ -232,6 +236,73 @@ def test_create_service_registry_unreachable_shows_error(admin_client, settings)
 
     assert response.status_code == 200
     assert b"try again" in response.content
+
+
+# --- rotate ----------------------------------------------------------------
+
+
+def test_rotate_rejects_developer(dev_client):
+    response = dev_client.post(_rotate_url(1))
+    assert response.status_code == 403
+
+
+def test_rotate_rejects_anonymous():
+    response = Client().post(_rotate_url(1))
+    assert response.status_code == 403
+
+
+@respx.mock
+def test_rotate_issues_new_key_and_shows_token_once(admin_client, settings):
+    settings.FASTAPI_REGISTRY_URL = BASE_URL
+    admin = User.objects.get(username="admin")
+    ApiKey.objects.create(service_id=5, key_hash=make_password("old"), created_by=admin)
+    _mock_list([_service_payload(id=5)])
+    respx.patch(f"{BASE_URL}/api/v1/services/5").mock(
+        return_value=httpx.Response(200, json=_service_payload(id=5))
+    )
+
+    response = admin_client.post(_rotate_url(5))
+
+    assert response.status_code == 200
+    assert b"payments-api" in response.content
+    assert b"rotated" in response.content
+    keys = ApiKey.objects.filter(service_id=5).order_by("id")
+    assert keys.count() == 2
+    old_key, new_key = keys
+    assert old_key.revoked_at is not None and old_key.revoked_at > timezone.now()
+    assert new_key.is_active
+    assert AuditEvent.objects.filter(
+        action=AuditEvent.Action.SERVICE_KEY_ROTATED, service_id=5
+    ).exists()
+
+
+def test_rotate_without_active_key_shows_friendly_error(admin_client):
+    response = admin_client.post(_rotate_url(999))
+
+    assert response.status_code == 200
+    assert b"no active key to rotate" in response.content
+    assert not ApiKey.objects.exists()
+
+
+@respx.mock
+def test_rotate_registry_unreachable_shows_error_but_keeps_db_change(admin_client, settings):
+    """The DB write happens before the FastAPI push (see `rotate_key`'s docstring):
+    a failed push still leaves the new key active and the old one verifying through
+    its grace window, just without the audit entry a *completed* rotation gets."""
+    settings.FASTAPI_REGISTRY_URL = BASE_URL
+    admin = User.objects.get(username="admin")
+    ApiKey.objects.create(service_id=5, key_hash=make_password("old"), created_by=admin)
+    _mock_list([_service_payload(id=5)])
+    respx.patch(f"{BASE_URL}/api/v1/services/5").mock(side_effect=httpx.ConnectError("refused"))
+
+    response = admin_client.post(_rotate_url(5))
+
+    assert response.status_code == 200
+    assert b"try again" in response.content
+    assert ApiKey.objects.filter(service_id=5, revoked_at__isnull=True).exists()
+    assert not AuditEvent.objects.filter(
+        action=AuditEvent.Action.SERVICE_KEY_ROTATED, service_id=5
+    ).exists()
 
 
 # --- revoke --------------------------------------------------------------
